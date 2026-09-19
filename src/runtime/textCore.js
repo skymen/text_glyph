@@ -95,6 +95,23 @@ class QuadBatch {
 
 // Style spans may not split a grapheme cluster. Move offending boundaries back
 // to the previous cluster boundary and drop spans that become empty.
+// glyph only breaks a line where the shaper marked the next glyph safe to
+// break, and never reshapes a line. A font that kerns letters against the
+// space (Fredoka does) flags the glyph after every space unsafe, which
+// removes most word breaks. Turning kerning off on the spaces themselves
+// keeps the breaks and the kerning inside words.
+function spaceKernOff(plain) {
+  let features = null;
+  for (let i = 0; i < plain.length; i++) {
+    const c = plain.charCodeAt(i);
+    if (c === 32 || (c >= 0x2000 && c <= 0x200a) || c === 0x3000) {
+      if (!features) features = [];
+      features.push({ tag: "kern", value: 0, start: i, end: i + 1 });
+    }
+  }
+  return features;
+}
+
 function snapSpansToClusters(plain, spans) {
   const boundaries = new Set(graphemeEnds(plain));
   boundaries.add(0);
@@ -634,6 +651,8 @@ export class TextCore {
           const style = { fontSize: basePx, lineHeight, direction };
           if (this.letterSpacing) style.letterSpacing = this.letterSpacing;
           if (this.wordSpacing) style.wordSpacing = this.wordSpacing;
+          const features = spaceKernOff(parsed.plain);
+          if (features) style.features = features;
           const state = {
             font: base.font,
             text: { text: parsed.plain, spans: glyphSpans },

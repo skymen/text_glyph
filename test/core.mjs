@@ -162,4 +162,39 @@ for (const mode of ["glyph", "simple"]) {
   core.dispose();
   console.log(mode, "layout checks passed");
 }
+// Fredoka kerns letters against the space, which makes HarfRust flag the first
+// glyph of most words unsafe to break. Without the kern-off-on-spaces
+// workaround glyph would break after "stays" here and split "the" at 200.
+{
+  const FREDOKA = new URL("../examples/fonts/Fredoka-Regular.ttf", import.meta.url).pathname;
+  const shared = createShared({ ...adapter, findFile: (stems) => ({ name: FREDOKA, index: stems.length - 1 }) });
+  await shared.ready;
+  await shared.fonts.loadFace("Fredoka", false, false);
+  const core = new TextCore(shared);
+  core.setFont("Fredoka", false, false);
+  core.setSize(12);
+  core.setText("Reveals one grapheme at a time over a duration. Layout stays put and a trigger fires at the end.");
+  for (const w of [200, 280]) {
+    core.ensureLayout(w, 300);
+    const insp = core.insp;
+    for (let l = 0; l < insp.lineCount - 1; l++) {
+      const line = core._parsed.plain.slice(insp.lineTextStarts[l], insp.lineTextEnds[l]);
+      const next = core._parsed.plain.slice(insp.lineTextStarts[l + 1]).split(" ")[0];
+      assert.ok(line.endsWith(" "), `line ${l} at ${w} breaks at a space: ${JSON.stringify(line)}`);
+      assert.ok(insp.lineAdvances[l] + spaceAndWord(core, next) > w, `line ${l} at ${w} is as full as it can be: ${JSON.stringify(line)} + ${next}`);
+    }
+  }
+  core.dispose();
+  console.log("space kerning wrap check passed");
+}
+function spaceAndWord(core, word) {
+  const probe = new TextCore(core.shared);
+  probe.setFont(core.family, false, false);
+  probe.setSize(core.ptSize);
+  probe.setText(" " + word);
+  probe.ensureLayout(10000, 100);
+  const w = probe.insp.contentWidth;
+  probe.dispose();
+  return w;
+}
 console.log("core tests passed");
