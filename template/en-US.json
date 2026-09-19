@@ -1,117 +1,469 @@
 {
   "languageTag": "en-US",
-  "fileDescription": "Strings for sample_addon.",
+  "fileDescription": "Strings for skymen_text_glyph.",
   "text": {
     "plugins": {
-      "sample_addon": {
-        "name": "Sample Addon",
-        "description": "Description",
+      "skymen_text_glyph": {
+        "name": "Text Glyph",
+        "description": "Text object drawn from a shared glyph atlas. Real shaping and bidi, BBCode, per-letter effects, typewriter without reflow.",
         "help-url": "https://www.construct.net",
         "aceCategories": {
-          "Ace_Folders_In_Category_Folder": "Ace_Folders_In_Category_Folder",
-          "Aces_Files_In_Category_Folder": "Aces_Files_In_Category_Folder",
-          "Aces_In_Single_File": "Aces_In_Single_File"
+          "fonts": "Fonts",
+          "text": "Text",
+          "typewriter": "Typewriter",
+          "tags": "Tags"
         },
-        "properties": {},
+        "properties": {
+          "text": {
+            "name": "Text",
+            "desc": "The text to display. Supports BBCode when enabled."
+          },
+          "bbcode": {
+            "name": "Enable BBCode",
+            "desc": "Parse BBCode tags like [b], [color=red] and [size=20] in the text."
+          },
+          "font": {
+            "name": "Font",
+            "desc": "Font family. Must match a .ttf or .otf file in the project's Fonts folder."
+          },
+          "size": {
+            "name": "Size",
+            "desc": "Font size in points."
+          },
+          "lineHeight": {
+            "name": "Line height",
+            "desc": "Extra pixels added to every line. Can be negative."
+          },
+          "bold": {
+            "name": "Bold",
+            "desc": "Use the Bold font file when present, otherwise embolden the regular face."
+          },
+          "italic": {
+            "name": "Italic",
+            "desc": "Use the Italic font file when present, otherwise slant the regular face."
+          },
+          "color": {
+            "name": "Color",
+            "desc": "Text color."
+          },
+          "hAlign": {
+            "name": "Horizontal alignment",
+            "desc": "Horizontal alignment of the text inside the object.",
+            "items": {
+              "left": "Left",
+              "center": "Center",
+              "right": "Right"
+            }
+          },
+          "vAlign": {
+            "name": "Vertical alignment",
+            "desc": "Vertical alignment of the text inside the object.",
+            "items": {
+              "top": "Top",
+              "center": "Center",
+              "bottom": "Bottom"
+            }
+          },
+          "wrap": {
+            "name": "Wrapping",
+            "desc": "Break lines between words or between characters.",
+            "items": {
+              "word": "Word",
+              "character": "Character"
+            }
+          },
+          "direction": {
+            "name": "Text direction",
+            "desc": "Base paragraph direction. Auto picks it from the first strong character.",
+            "items": {
+              "ltr": "Left to right",
+              "rtl": "Right to left",
+              "auto": "Auto"
+            }
+          }
+        },
         "actions": {
-          "ActionCombo": {
-            "list-name": "Sample Action Combo",
-            "display-text": "Sample Action Combo {0}",
-            "description": "This is a sample action",
+          "LoadFont": {
+            "list-name": "Load font",
+            "display-text": "Load font [i]{0}[/i] ([i]{1}[/i])",
+            "description": "Load a project font ahead of time so text using it appears without delay. Waits until the font is ready.",
             "params": {
-              "param1": {
-                "name": "Param1",
-                "desc": "This is a sample param",
+              "family": {
+                "name": "Font family",
+                "desc": "Font family name, matching a project font file."
+              },
+              "style": {
+                "name": "Style",
+                "desc": "Font style.",
                 "items": {
-                  "test": "test",
-                  "test2": "test2"
+                  "normal": "Normal",
+                  "bold": "Bold",
+                  "italic": "Italic",
+                  "boldItalic": "Bold and italic"
                 }
               }
             }
           },
-          "Action": {
-            "list-name": "Sample Action",
-            "display-text": "Sample Action {0}",
-            "description": "This is a sample action",
+          "AppendText": {
+            "list-name": "Append text",
+            "display-text": "Append [i]{0}[/i]",
+            "description": "Add some text to the end of the existing text.",
             "params": {
-              "param1": {
-                "name": "Param1",
-                "desc": "This is a sample param"
+              "text": {
+                "name": "Text",
+                "desc": "The text to append."
               }
             }
           },
-          "AsyncAction": {
-            "list-name": "Sample Action Async",
-            "display-text": "Sample Action Async",
-            "description": "This is a sample action",
+          "SetBBCodeEnabled": {
+            "list-name": "Set BBCode enabled",
+            "display-text": "Set BBCode [b]{0}[/b]",
+            "description": "Enable or disable BBCode parsing of the text.",
+            "params": {
+              "enabled": {
+                "name": "Enabled",
+                "desc": "Whether BBCode tags are parsed."
+              }
+            }
+          },
+          "SetFontColor": {
+            "list-name": "Set font color",
+            "display-text": "Set font color to [i]{0}[/i]",
+            "description": "Set the text color, e.g. with rgb(255, 0, 0) or rgbEx(100, 0, 0).",
+            "params": {
+              "color": {
+                "name": "Color",
+                "desc": "Color value from rgb() or rgbEx()."
+              }
+            }
+          },
+          "SetFontFace": {
+            "list-name": "Set font face",
+            "display-text": "Set font face to [i]{0}[/i] ([i]{1}[/i])",
+            "description": "Set the font family and style. The family must match a .ttf or .otf project file.",
+            "params": {
+              "family": {
+                "name": "Font family",
+                "desc": "Font family name, matching a project font file."
+              },
+              "style": {
+                "name": "Style",
+                "desc": "Font style.",
+                "items": {
+                  "normal": "Normal",
+                  "bold": "Bold",
+                  "italic": "Italic",
+                  "boldItalic": "Bold and italic"
+                }
+              }
+            }
+          },
+          "SetFontSize": {
+            "list-name": "Set font size",
+            "display-text": "Set font size to [i]{0}[/i]",
+            "description": "Set the font size in points.",
+            "params": {
+              "size": {
+                "name": "Size",
+                "desc": "Font size in points."
+              }
+            }
+          },
+          "SetHorizontalAlignment": {
+            "list-name": "Set horizontal alignment",
+            "display-text": "Set horizontal alignment to [i]{0}[/i]",
+            "description": "Set the horizontal alignment of the text.",
+            "params": {
+              "align": {
+                "name": "Alignment",
+                "desc": "Horizontal alignment.",
+                "items": {
+                  "left": "Left",
+                  "center": "Center",
+                  "right": "Right"
+                }
+              }
+            }
+          },
+          "SetLineHeight": {
+            "list-name": "Set line height",
+            "display-text": "Set line height to [i]{0}[/i]",
+            "description": "Set the extra pixels added to every line. Can be negative.",
+            "params": {
+              "lineHeight": {
+                "name": "Line height",
+                "desc": "Extra pixels per line."
+              }
+            }
+          },
+          "SetText": {
+            "list-name": "Set text",
+            "display-text": "Set text to [i]{0}[/i]",
+            "description": "Set the text to display. BBCode tags are parsed when BBCode is enabled.",
+            "params": {
+              "text": {
+                "name": "Text",
+                "desc": "The text to display."
+              }
+            }
+          },
+          "SetTextDirection": {
+            "list-name": "Set text direction",
+            "display-text": "Set text direction to [i]{0}[/i]",
+            "description": "Set the base paragraph direction.",
+            "params": {
+              "direction": {
+                "name": "Direction",
+                "desc": "Base direction.",
+                "items": {
+                  "ltr": "Left to right",
+                  "rtl": "Right to left",
+                  "auto": "Auto"
+                }
+              }
+            }
+          },
+          "SetVerticalAlignment": {
+            "list-name": "Set vertical alignment",
+            "display-text": "Set vertical alignment to [i]{0}[/i]",
+            "description": "Set the vertical alignment of the text.",
+            "params": {
+              "align": {
+                "name": "Alignment",
+                "desc": "Vertical alignment.",
+                "items": {
+                  "top": "Top",
+                  "center": "Center",
+                  "bottom": "Bottom"
+                }
+              }
+            }
+          },
+          "SetWrapping": {
+            "list-name": "Set wrapping",
+            "display-text": "Set wrapping to [i]{0}[/i]",
+            "description": "Set whether lines break between words or between characters.",
+            "params": {
+              "mode": {
+                "name": "Mode",
+                "desc": "Wrapping mode.",
+                "items": {
+                  "word": "Word",
+                  "character": "Character"
+                }
+              }
+            }
+          },
+          "TypewriterFinish": {
+            "list-name": "Typewriter finish",
+            "display-text": "Finish typewriter text",
+            "description": "Reveal the whole text immediately.",
             "params": {}
           },
-          "SampleAction": {
-            "list-name": "Sample Action",
-            "display-text": "Sample Action {0}",
-            "description": "This is a sample action",
+          "TypewriterText": {
+            "list-name": "Typewriter text",
+            "display-text": "Typewriter text [i]{0}[/i] over [i]{1}[/i] seconds",
+            "description": "Set the text and reveal it one character at a time. The layout is computed once, so nothing shifts while typing.",
             "params": {
-              "param1": {
-                "name": "Param1",
-                "desc": "This is a sample param"
+              "text": {
+                "name": "Text",
+                "desc": "The text to type out."
+              },
+              "duration": {
+                "name": "Duration",
+                "desc": "Time in seconds to reveal the whole text."
               }
             }
           }
         },
         "conditions": {
-          "ConditionCombo": {
-            "list-name": "Sample Condition",
-            "display-text": "Sample Condition {0}",
-            "description": "This is a sample condition",
+          "IsFontLoaded": {
+            "list-name": "Is font loaded",
+            "display-text": "Is font [i]{0}[/i] ([i]{1}[/i]) loaded",
+            "description": "True once a project font has been loaded and is ready to draw with.",
             "params": {
-              "param1": {
-                "name": "Param1",
-                "desc": "This is a sample param",
+              "family": {
+                "name": "Font family",
+                "desc": "Font family name."
+              },
+              "style": {
+                "name": "Style",
+                "desc": "Font style.",
                 "items": {
-                  "TRUE": "True",
-                  "FALSE": "False"
+                  "normal": "Normal",
+                  "bold": "Bold",
+                  "italic": "Italic",
+                  "boldItalic": "Bold and italic"
                 }
               }
             }
           },
-          "Condition": {
-            "list-name": "Sample Condition",
-            "display-text": "Sample Condition {0}",
-            "description": "This is a sample condition",
+          "HasTagAtPosition": {
+            "list-name": "Has tag at position",
+            "display-text": "Has tag [i]{0}[/i] at ([i]{1}[/i], [i]{2}[/i])",
+            "description": "True if the text under a layout position is inside a [tag=...] span with the given name.",
             "params": {
-              "param1": {
-                "name": "Param1",
-                "desc": "This is a sample param"
+              "tag": {
+                "name": "Tag",
+                "desc": "Tag name to look for."
+              },
+              "x": {
+                "name": "X",
+                "desc": "X position in layout coordinates."
+              },
+              "y": {
+                "name": "Y",
+                "desc": "Y position in layout coordinates."
               }
             }
           },
-          "Trigger": {
-            "list-name": "Sample Trigger",
-            "display-text": "Sample Trigger",
-            "description": "This is a sample trigger",
+          "CompareText": {
+            "list-name": "Compare text",
+            "display-text": "Text is [i]{0}[/i] (case sensitive: [i]{1}[/i])",
+            "description": "Compare the current text with a string.",
+            "params": {
+              "text": {
+                "name": "Text",
+                "desc": "Text to compare with."
+              },
+              "caseSensitive": {
+                "name": "Case sensitive",
+                "desc": "Whether the comparison is case sensitive."
+              }
+            }
+          },
+          "IsRunningTypewriterText": {
+            "list-name": "Is running typewriter text",
+            "display-text": "Is running typewriter text",
+            "description": "True while text is being revealed by the typewriter action.",
             "params": {}
           },
-          "SampleCondition": {
-            "list-name": "Sample Condition",
-            "display-text": "Sample Condition",
-            "description": "This is a sample condition",
+          "OnTypewriterTextFinished": {
+            "list-name": "On typewriter text finished",
+            "display-text": "On typewriter text finished",
+            "description": "Triggered when the typewriter action has revealed the whole text.",
             "params": {}
           }
         },
         "expressions": {
-          "Expression2": {
-            "translated-name": "Expression2",
-            "description": "Sample Expression",
+          "TagAtPosition": {
+            "translated-name": "TagAtPosition",
+            "description": "The [tag=...] name under a layout position, or an empty string.",
+            "params": {
+              "x": {
+                "name": "X",
+                "desc": "X position in layout coordinates."
+              },
+              "y": {
+                "name": "Y",
+                "desc": "Y position in layout coordinates."
+              }
+            }
+          },
+          "TagCount": {
+            "translated-name": "TagCount",
+            "description": "How many separate [tag=...] spans with the given name the text contains.",
+            "params": {
+              "tag": {
+                "name": "Tag",
+                "desc": "Tag name."
+              }
+            }
+          },
+          "TagHeight": {
+            "translated-name": "TagHeight",
+            "description": "The height of the nth [tag=...] span with the given name, in layout coordinates.",
+            "params": {
+              "tag": {
+                "name": "Tag",
+                "desc": "Tag name."
+              },
+              "index": {
+                "name": "Index",
+                "desc": "Zero based index of the span among spans with that tag."
+              }
+            }
+          },
+          "TagWidth": {
+            "translated-name": "TagWidth",
+            "description": "The width of the nth [tag=...] span with the given name, in layout coordinates.",
+            "params": {
+              "tag": {
+                "name": "Tag",
+                "desc": "Tag name."
+              },
+              "index": {
+                "name": "Index",
+                "desc": "Zero based index of the span among spans with that tag."
+              }
+            }
+          },
+          "TagX": {
+            "translated-name": "TagX",
+            "description": "The x of the nth [tag=...] span with the given name, in layout coordinates.",
+            "params": {
+              "tag": {
+                "name": "Tag",
+                "desc": "Tag name."
+              },
+              "index": {
+                "name": "Index",
+                "desc": "Zero based index of the span among spans with that tag."
+              }
+            }
+          },
+          "TagY": {
+            "translated-name": "TagY",
+            "description": "The y of the nth [tag=...] span with the given name, in layout coordinates.",
+            "params": {
+              "tag": {
+                "name": "Tag",
+                "desc": "Tag name."
+              },
+              "index": {
+                "name": "Index",
+                "desc": "Zero based index of the span among spans with that tag."
+              }
+            }
+          },
+          "FaceName": {
+            "translated-name": "FaceName",
+            "description": "The current font family name.",
             "params": {}
           },
-          "Expression": {
-            "translated-name": "Expression",
-            "description": "Sample Expression",
+          "FaceSize": {
+            "translated-name": "FaceSize",
+            "description": "The current font size in points.",
             "params": {}
           },
-          "SampleExpression": {
-            "translated-name": "SampleExpression",
-            "description": "This is a sample expression",
+          "LineCount": {
+            "translated-name": "LineCount",
+            "description": "Number of laid out lines.",
+            "params": {}
+          },
+          "LineHeight": {
+            "translated-name": "LineHeight",
+            "description": "The extra pixels added to every line.",
+            "params": {}
+          },
+          "PlainText": {
+            "translated-name": "PlainText",
+            "description": "The current text with BBCode tags removed.",
+            "params": {}
+          },
+          "Text": {
+            "translated-name": "Text",
+            "description": "The current text, including BBCode tags.",
+            "params": {}
+          },
+          "TextHeight": {
+            "translated-name": "TextHeight",
+            "description": "Height of all laid out lines, in layout pixels.",
+            "params": {}
+          },
+          "TextWidth": {
+            "translated-name": "TextWidth",
+            "description": "Width of the widest line of laid out text, in layout pixels.",
             "params": {}
           }
         }
