@@ -27,29 +27,51 @@ const NAMED = {
 
 const cache = new Map();
 
+function hexDigit(c) {
+  if (c >= 48 && c <= 57) return c - 48;
+  if (c >= 97 && c <= 102) return c - 87;
+  if (c >= 65 && c <= 70) return c - 55;
+  return -1;
+}
+
+// #rgb, #rgba, #rrggbb, #rrggbbaa without regex or intermediate strings.
+function parseHex(str) {
+  const len = str.length;
+  if (len !== 4 && len !== 5 && len !== 7 && len !== 9) return null;
+  const short = len <= 5;
+  const step = short ? 1 : 2;
+  const out = [0, 0, 0, 1];
+  let pos = 1;
+  for (let k = 0; pos < len; k++) {
+    let v = hexDigit(str.charCodeAt(pos));
+    if (v < 0) return null;
+    if (short) v = v * 17;
+    else {
+      const lo = hexDigit(str.charCodeAt(pos + 1));
+      if (lo < 0) return null;
+      v = v * 16 + lo;
+    }
+    out[k] = v / 255;
+    pos += step;
+  }
+  return out;
+}
+
 // Returns [r, g, b, a] in 0..1, or null when the string is not a color.
 export function parseCssColor(str) {
   if (typeof str !== "string") return null;
+  if (str.charCodeAt(0) === 35) {
+    const hex = parseHex(str);
+    if (hex) return hex;
+  }
   const key = str.trim().toLowerCase();
-  if (cache.has(key)) return cache.get(key);
+  const hit = cache.get(key);
+  if (hit !== undefined) return hit;
   let out = null;
   const named = NAMED[key];
   if (named) out = named.length === 4 ? named : [named[0], named[1], named[2], 1];
-  else if (key[0] === "#") {
-    const h = key.slice(1);
-    if (/^[0-9a-f]{3,4}$/.test(h)) {
-      const v = h.split("").map((c) => parseInt(c + c, 16) / 255);
-      out = [v[0], v[1], v[2], v.length === 4 ? v[3] : 1];
-    } else if (/^[0-9a-f]{6}([0-9a-f]{2})?$/.test(h)) {
-      const n = parseInt(h.slice(0, 6), 16);
-      out = [
-        ((n >> 16) & 255) / 255,
-        ((n >> 8) & 255) / 255,
-        (n & 255) / 255,
-        h.length === 8 ? parseInt(h.slice(6), 16) / 255 : 1,
-      ];
-    }
-  } else {
+  else if (key[0] === "#") out = parseHex(key);
+  else {
     const m = key.match(
       /^rgba?\(\s*([\d.]+)%?\s*[, ]\s*([\d.]+)%?\s*[, ]\s*([\d.]+)%?\s*(?:[,/]\s*([\d.]+)(%?)\s*)?\)$/
     );
@@ -66,6 +88,8 @@ export function parseCssColor(str) {
       ];
     }
   }
+  // Animated colors produce a new string every tick, so the cache is capped.
+  if (cache.size > 512) cache.clear();
   cache.set(key, out);
   return out;
 }

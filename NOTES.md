@@ -11,3 +11,5 @@
 - Editor preview uses Construct's text renderer, so it ignores BBCode styling and uses the base font only.
 - glyph 0.1.0 internals imported by path in `src/runtime/glyphEngine.js` (loader.js, font-baker/index.js, internal/font-bake-pipeline.js, internal/raster-bake-plan.js). Pin the version; re-check these paths on every glyph upgrade.
 - Check in Construct: `drawMesh` vertex color multiplication with layer/effects, `layerToDrawSurface` returning device pixels, project font file names in `projectFileList` (folder prefixes), `getCurrentZ` for Z elevation.
+- Animate Text still round-trips through a BBCode string every tick: it serializes per-letter values, then `parseBBCode` re-parses them. A direct fragment API (Animate Text hands over `[text, tags]` groups, Text Glyph builds fragments without parseFloat or substring) would remove both the string build and the parse, the two biggest per-tick costs left.
+- `fragIndexFor` is a binary search per glyph on every reparse. A forward scan with a cached index would do for LTR text.

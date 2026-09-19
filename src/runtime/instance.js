@@ -88,7 +88,7 @@ class QuadBatch {
 
 // Style spans may not split a grapheme cluster. Move offending boundaries back
 // to the previous cluster boundary and drop spans that become empty.
-function snapSpansToClusters(plain, spans, metas) {
+function snapSpansToClusters(plain, spans) {
   const boundaries = new Set(graphemeEnds(plain));
   boundaries.add(0);
   const ends = Array.from(boundaries).sort((a, b) => a - b);
@@ -100,18 +100,16 @@ function snapSpansToClusters(plain, spans, metas) {
     }
     return ends[lo];
   };
-  for (let i = 1; i < spans.length; i++) {
+  for (let i = 0; i < spans.length; i++) {
     if (!boundaries.has(spans[i].start)) {
       const b = snap(spans[i].start);
       spans[i].start = b;
-      spans[i - 1].end = b;
+      if (i > 0 && spans[i - 1].end > b) spans[i - 1].end = b;
     }
+    if (!boundaries.has(spans[i].end)) spans[i].end = snap(spans[i].end);
   }
   for (let i = spans.length - 1; i >= 0; i--) {
-    if (spans[i].start >= spans[i].end) {
-      spans.splice(i, 1);
-      metas.splice(i, 1);
-    }
+    if (spans[i].start >= spans[i].end) spans.splice(i, 1);
   }
 }
 
@@ -122,6 +120,52 @@ function fragIndexFor(spans, offset) {
     if (spans[mid].start <= offset) lo = mid; else hi = mid - 1;
   }
   return lo;
+}
+
+// Per-frame draw context shared by the emit helpers, so the glyph loop does
+// not allocate closures.
+function batchFor(fc, pass, page) {
+  let b = fc.passes[pass].get(page);
+  if (!b) {
+    b = new QuadBatch();
+    fc.passes[pass].set(page, b);
+  }
+  return b;
+}
+
+function emitRect(fc, pass, lx, ty, rw, rh, r, g, b, a) {
+  const rx = lx + rw, by = ty + rh, w = fc.white;
+  batchFor(fc, pass, w.page).push(
+    fc.ox + lx * fc.ex + ty * fc.fx, fc.oy + lx * fc.ey + ty * fc.fy,
+    fc.ox + rx * fc.ex + ty * fc.fx, fc.oy + rx * fc.ey + ty * fc.fy,
+    fc.ox + rx * fc.ex + by * fc.fx, fc.oy + rx * fc.ey + by * fc.fy,
+    fc.ox + lx * fc.ex + by * fc.fx, fc.oy + lx * fc.ey + by * fc.fy,
+    fc.z, w.u0, w.v0, w.u1, w.v1, r, g, b, a
+  );
+}
+
+// Uses the current glyph's transform fields on fc (gx, gy, rs, cx, cy, cs, sn, sx, sy, shear, rotate).
+function emitGlyph(fc, entry, pass, cr, cg, cb, ca) {
+  const lx = fc.gx + entry.ox / fc.rs, ty = fc.gy + entry.oy / fc.rs;
+  const rx = lx + entry.w / fc.rs, by = ty + entry.h / fc.rs;
+  const out = SCRATCH_OUT, pts = SCRATCH_PTS;
+  pts[0] = lx; pts[1] = ty; pts[2] = rx; pts[3] = ty;
+  pts[4] = rx; pts[5] = by; pts[6] = lx; pts[7] = by;
+  for (let k = 0; k < 4; k++) {
+    let px = pts[k * 2], py = pts[k * 2 + 1];
+    px += fc.shear * (fc.gy - py);
+    if (fc.rotate) {
+      const vx = (px - fc.cx) * fc.sx, vy = (py - fc.cy) * fc.sy;
+      px = fc.cx + vx * fc.cs - vy * fc.sn;
+      py = fc.cy + vx * fc.sn + vy * fc.cs;
+    }
+    out[k * 2] = fc.ox + px * fc.ex + py * fc.fx;
+    out[k * 2 + 1] = fc.oy + px * fc.ey + py * fc.fy;
+  }
+  batchFor(fc, pass, entry.page).push(
+    out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+    fc.z, entry.u0, entry.v0, entry.u1, entry.v1, cr, cg, cb, ca
+  );
 }
 
 export default function (parentClass) {
@@ -160,9 +204,11 @@ export default function (parentClass) {
       this._controller = null;
       this._insp = null;
       this._metas = null;
-      this._spans = null;
       this._glyphFrag = null;
       this._glyphLine = null;
+      this._glyphFragDirty = false;
+      this._fragsSeen = null;
+      this._layoutKey = "";
       this._parsed = null;
       this._parseDirty = true;
       this._layoutDirty = true;
@@ -170,7 +216,7 @@ export default function (parentClass) {
       this._layoutW = -1;
       this._layoutH = -1;
       this._offsetY = 0;
-      this._batches = null;
+      this._fc = null;
       this._twStart = -1;
       this._twEnd = -1;
       this._twEnds = null;
@@ -355,14 +401,19 @@ export default function (parentClass) {
       const parsed = this._parsed;
       if (!parsed.plain.length) {
         this._insp = null;
+        this._layoutKey = "";
         this._layoutDirty = false;
         return false;
       }
 
+      // Per-fragment metadata is ours. Glyph only needs the spans that change
+      // shaping: a different face or font size. Adjacent equal spans merge.
       const basePx = this._ptSize * PT_TO_PX;
+      const frags = parsed.frags;
       const spans = [];
-      const metas = [];
-      for (const f of parsed.frags) {
+      let key = "";
+      for (let k = 0; k < frags.length; k++) {
+        const f = frags[k];
         const st = f.style;
         const bold = this._bold || st.bold;
         const italic = this._italic || st.italic;
@@ -370,14 +421,16 @@ export default function (parentClass) {
         if (st.font || bold !== this._bold || italic !== this._italic)
           face = fonts.getFace(st.font || this._family, bold, italic) || base;
         const sizePx = st.sizePt > 0 ? st.sizePt * PT_TO_PX : basePx;
-        const span = { start: f.start, end: f.end };
-        if (face !== base) span.font = face.font;
-        if (sizePx !== basePx) span.style = { fontSize: sizePx };
-        spans.push(span);
-        metas.push({ st, face });
+        f.face = face;
+        if (face === base && sizePx === basePx) continue;
+        const last = spans[spans.length - 1];
+        if (last && last.end === f.start && last.face === face && last.sizePx === sizePx) {
+          last.end = f.end;
+          continue;
+        }
+        spans.push({ start: f.start, end: f.end, face, sizePx });
       }
-      snapSpansToClusters(parsed.plain, spans, metas);
-
+      for (const sp of spans) key += sp.start + ":" + sp.end + ":" + sp.face.key + ":" + sp.sizePx + ",";
       const fm = base.font.metrics;
       const natural = (fm.ascender - fm.descender + fm.lineGap) / fm.unitsPerEm;
       const lineHeight = Math.max(0.1, natural + this._lineHeightOffset / basePx);
@@ -385,38 +438,61 @@ export default function (parentClass) {
       let align = "center";
       if (this._hAlign !== 1)
         align = (this._hAlign === 0) === (direction !== "rtl") ? "start" : "end";
-      const state = {
-        font: base.font,
-        text: { text: parsed.plain, spans },
-        transform: this._tf,
-        style: { fontSize: basePx, lineHeight, direction },
-        layout: { wrap: WRAP[this._wrap], align, overflow: "visible" },
-        constraints: { width: { mode: "exact", size: w } },
-      };
-      try {
-        if (this._controller) this._controller.update(state);
-        else this._controller = s.engine.createText(state);
-        this._insp = this._controller.inspect();
-      } catch (e) {
-        console.error("[Text Glyph] layout failed", e);
-        this._insp = null;
-        this._layoutDirty = false;
-        return false;
+      key = [parsed.plain, w, basePx, lineHeight, direction, align, this._wrap, base.key, key].join("\u0001");
+      this._metas = frags;
+
+      if (key !== this._layoutKey || !this._insp) {
+        const glyphSpans = spans.map((sp) => {
+          const span = { start: sp.start, end: sp.end };
+          if (sp.face !== base) span.font = sp.face.font;
+          if (sp.sizePx !== basePx) span.style = { fontSize: sp.sizePx };
+          return span;
+        });
+        snapSpansToClusters(parsed.plain, glyphSpans);
+        const state = {
+          font: base.font,
+          text: { text: parsed.plain, spans: glyphSpans },
+          transform: this._tf,
+          style: { fontSize: basePx, lineHeight, direction },
+          layout: { wrap: WRAP[this._wrap], align, overflow: "visible" },
+          constraints: { width: { mode: "exact", size: w } },
+        };
+        try {
+          if (this._controller) this._controller.update(state);
+          else this._controller = s.engine.createText(state);
+          this._insp = this._controller.inspect();
+        } catch (e) {
+          console.error("[Text Glyph] layout failed", e);
+          this._insp = null;
+          this._layoutKey = "";
+          this._layoutDirty = false;
+          return false;
+        }
+        this._layoutKey = key;
+        const insp = this._insp;
+        const n = insp.glyphCount;
+        if (!this._glyphLine || this._glyphLine.length !== n) {
+          this._glyphLine = new Int32Array(n);
+          this._glyphFrag = new Int32Array(n);
+        }
+        const gl = this._glyphLine;
+        for (let l = 0; l < insp.lineCount; l++) {
+          const start = insp.lineGlyphStarts[l], count = insp.lineGlyphCounts[l];
+          for (let k = start; k < start + count; k++) gl[k] = l;
+        }
+        this._glyphFragDirty = true;
       }
-      const insp = this._insp;
-      const n = insp.glyphCount;
-      const gf = new Int32Array(n);
-      const gl = new Int32Array(n);
-      for (let i = 0; i < n; i++) gf[i] = fragIndexFor(spans, insp.clusters[i]);
-      for (let l = 0; l < insp.lineCount; l++) {
-        const start = insp.lineGlyphStarts[l], count = insp.lineGlyphCounts[l];
-        for (let k = start; k < start + count; k++) gl[k] = l;
+
+      // Fragment boundaries can move without the layout changing (tags only),
+      // so the glyph to fragment map is refreshed on every reparse.
+      if (this._glyphFragDirty || this._fragsSeen !== parsed) {
+        const insp = this._insp, gf = this._glyphFrag;
+        for (let i = 0; i < insp.glyphCount; i++) gf[i] = fragIndexFor(frags, insp.clusters[i]);
+        this._glyphFragDirty = false;
+        this._fragsSeen = parsed;
       }
-      this._spans = spans;
-      this._metas = metas;
-      this._glyphFrag = gf;
-      this._glyphLine = gl;
-      const ch = insp.contentHeight;
+
+      const ch = this._insp.contentHeight;
       this._offsetY = this._vAlign === 1 ? (h - ch) / 2 : this._vAlign === 2 ? h - ch : 0;
       this._layoutDirty = false;
       return true;
@@ -454,45 +530,29 @@ export default function (parentClass) {
       const lines = insp.lines;
       const w = this._layoutW, h = this._layoutH;
       const q = this.getBoundingQuad(true);
-      let ox = q.p1.x, oy = q.p1.y;
+      const fc = (this._fc ||= { passes: [new Map(), new Map(), new Map(), new Map()] });
+      fc.ox = q.p1.x;
+      fc.oy = q.p1.y;
       if (this.runtime.isPixelRoundingEnabled) {
-        ox = Math.round(ox);
-        oy = Math.round(oy);
+        fc.ox = Math.round(fc.ox);
+        fc.oy = Math.round(fc.oy);
       }
-      const ex = (q.p2.x - q.p1.x) / w, ey = (q.p2.y - q.p1.y) / w;
-      const fx = (q.p4.x - q.p1.x) / h, fy = (q.p4.y - q.p1.y) / h;
-      const z = renderer.getCurrentZ();
+      fc.ex = (q.p2.x - q.p1.x) / w;
+      fc.ey = (q.p2.y - q.p1.y) / w;
+      fc.fx = (q.p4.x - q.p1.x) / h;
+      fc.fy = (q.p4.y - q.p1.y) / h;
+      fc.z = renderer.getCurrentZ();
+      fc.white = atlas.white;
+      for (const m of fc.passes) for (const b of m.values()) b.count = 0;
       const ppu = this._tgPixelsPerUnit();
       const ic = this.colorRgb, io = this.opacity;
       const baseColor = this._color;
       const offY = this._offsetY;
       const twReveal = this._twReveal;
-      const white = atlas.white;
-
-      const passes = (this._batches ||= [new Map(), new Map(), new Map(), new Map()]);
-      for (const m of passes) for (const b of m.values()) b.count = 0;
-      const batch = (pass, page) => {
-        let b = passes[pass].get(page);
-        if (!b) {
-          b = new QuadBatch();
-          passes[pass].set(page, b);
-        }
-        return b;
-      };
-      const rect = (pass, lx, ty, rw, rh, r, g, b, a) => {
-        const rx = lx + rw, by = ty + rh;
-        batch(pass, white.page).push(
-          ox + lx * ex + ty * fx, oy + lx * ey + ty * fy,
-          ox + rx * ex + ty * fx, oy + rx * ey + ty * fy,
-          ox + rx * ex + by * fx, oy + rx * ey + by * fy,
-          ox + lx * ex + by * fx, oy + lx * ey + by * fy,
-          z, white.u0, white.v0, white.u1, white.v1, r, g, b, a
-        );
-      };
 
       for (let i = 0; i < insp.glyphCount; i++) {
         const meta = metas[gf[i]];
-        const st = meta.st;
+        const st = meta.style;
         if (st.hide) continue;
         if (insp.clusters[i] >= twReveal) continue;
         const size = insp.glyphFontSizes[i];
@@ -512,41 +572,27 @@ export default function (parentClass) {
 
         if (st.background) {
           const bg = st.background;
-          rect(0, gx, gy - line.ascent, adv, line.lineHeight, bg[0] * ic[0], bg[1] * ic[1], bg[2] * ic[2], alpha * bg[3]);
+          emitRect(fc, 0, gx, gy - line.ascent, adv, line.lineHeight, bg[0] * ic[0], bg[1] * ic[1], bg[2] * ic[2], alpha * bg[3]);
         }
 
         const face = meta.face;
         const gid = insp.glyphIds[i];
         const ppem = bucketPpem(size * ppu);
         const rs = ppem / size;
-        const cx = gx + adv / 2, cy = gy - size * 0.35;
-        const sx = st.scaleX, sy = st.scaleY;
-        const rotate = st.angle !== 0 || sx !== 1 || sy !== 1;
-        const ang = (st.angle * Math.PI) / 180;
-        const cs = Math.cos(ang), sn = Math.sin(ang);
-        const shear = face.fakeItalic ? FAKE_ITALIC_SHEAR : 0;
-        const emit = (entry, pass, cr, cg, cb, ca) => {
-          const lx = gx + entry.ox / rs, ty = gy + entry.oy / rs;
-          const rx = lx + entry.w / rs, by = ty + entry.h / rs;
-          const out = SCRATCH_OUT, pts = SCRATCH_PTS;
-          pts[0] = lx; pts[1] = ty; pts[2] = rx; pts[3] = ty;
-          pts[4] = rx; pts[5] = by; pts[6] = lx; pts[7] = by;
-          for (let k = 0; k < 4; k++) {
-            let px = pts[k * 2], py = pts[k * 2 + 1];
-            px += shear * (gy - py);
-            if (rotate) {
-              const vx = (px - cx) * sx, vy = (py - cy) * sy;
-              px = cx + vx * cs - vy * sn;
-              py = cy + vx * sn + vy * cs;
-            }
-            out[k * 2] = ox + px * ex + py * fx;
-            out[k * 2 + 1] = oy + px * ey + py * fy;
-          }
-          batch(pass, entry.page).push(
-            out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
-            z, entry.u0, entry.v0, entry.u1, entry.v1, cr, cg, cb, ca
-          );
-        };
+        fc.gx = gx;
+        fc.gy = gy;
+        fc.rs = rs;
+        fc.cx = gx + adv / 2;
+        fc.cy = gy - size * 0.35;
+        fc.sx = st.scaleX;
+        fc.sy = st.scaleY;
+        fc.rotate = st.angle !== 0 || st.scaleX !== 1 || st.scaleY !== 1;
+        if (fc.rotate) {
+          const ang = (st.angle * Math.PI) / 180;
+          fc.cs = Math.cos(ang);
+          fc.sn = Math.sin(ang);
+        }
+        fc.shear = face.fakeItalic ? FAKE_ITALIC_SHEAR : 0;
 
         // Outline width follows the built-in Text object: size/64 per unit of thickness.
         const strokePx = Math.max(0.5, Math.round(((size * st.lineThickness) / 64) * rs * 2) / 2);
@@ -554,29 +600,29 @@ export default function (parentClass) {
           const e = atlas.get(face, gid, ppem, face.fakeBold, strokePx);
           if (e) {
             const oc = st.outline;
-            emit(e, 1, oc[0] * ic[0], oc[1] * ic[1], oc[2] * ic[2], alpha * oc[3]);
+            emitGlyph(fc, e, 1, oc[0] * ic[0], oc[1] * ic[1], oc[2] * ic[2], alpha * oc[3]);
           }
         }
         const e = atlas.get(face, gid, ppem, face.fakeBold, st.stroke ? strokePx : 0);
-        if (e) emit(e, 2, r, g, b, a);
+        if (e) emitGlyph(fc, e, 2, r, g, b, a);
 
         if (st.underline || st.strike) {
           const fm = face.font.metrics;
           const k = size / fm.unitsPerEm;
           if (st.underline) {
             const th = Math.max(0.5, fm.underlineThickness * k * st.lineThickness);
-            rect(3, gx, gy - fm.underlinePosition * k - th / 2, adv, th, r, g, b, a);
+            emitRect(fc, 3, gx, gy - fm.underlinePosition * k - th / 2, adv, th, r, g, b, a);
           }
           if (st.strike) {
             const th = Math.max(0.5, fm.strikeoutSize * k * st.lineThickness);
-            rect(3, gx, gy - fm.strikeoutPosition * k - th / 2, adv, th, r, g, b, a);
+            emitRect(fc, 3, gx, gy - fm.strikeoutPosition * k - th / 2, adv, th, r, g, b, a);
           }
         }
       }
 
       atlas.flush(renderer);
       renderer.setTextureFillMode();
-      for (const pass of passes) {
+      for (const pass of fc.passes) {
         for (const [page, b] of pass) {
           if (!b.count) continue;
           renderer.setTexture(page.texture);
@@ -668,7 +714,7 @@ export default function (parentClass) {
       for (let i = 0; i < insp.glyphCount; i++) {
         const [gx, top, adv, lh] = this._tgGlyphBox(i);
         if (lx >= gx && lx < gx + adv && ly >= top && ly < top + lh)
-          return this._metas[this._glyphFrag[i]].st.tag;
+          return this._metas[this._glyphFrag[i]].style.tag;
       }
       return "";
     }
@@ -678,7 +724,7 @@ export default function (parentClass) {
       tag = String(tag).toLowerCase();
       const out = [];
       this._metas.forEach((m, i) => {
-        if (m.st.tag && m.st.tag.toLowerCase() === tag) out.push(i);
+        if (m.style.tag && m.style.tag.toLowerCase() === tag) out.push(i);
       });
       return out;
     }

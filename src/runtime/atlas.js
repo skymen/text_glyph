@@ -95,12 +95,20 @@ export class GlyphAtlas {
   }
 
   // face: FontManager record. strokePx: outward outline width in raster px, 0 for a fill.
+  // Keyed by face, then by a number packing glyph id, ppem, fake bold and
+  // stroke width, so a lookup allocates nothing.
   get(face, glyphId, ppem, fakeBold, strokePx) {
-    const key = `${face.key}|${glyphId}|${ppem}|${fakeBold ? 1 : 0}|${strokePx}`;
-    const cached = this.cache.get(key);
+    let perFace = this.cache.get(face.key);
+    if (!perFace) {
+      perFace = new Map();
+      this.cache.set(face.key, perFace);
+    }
+    const key =
+      glyphId + ppem * 65536 + (fakeBold ? 268435456 : 0) + Math.min(4095, strokePx * 2) * 536870912;
+    const cached = perFace.get(key);
     if (cached !== undefined) return cached;
     const entry = this._raster(face, glyphId, ppem, fakeBold, strokePx);
-    this.cache.set(key, entry);
+    perFace.set(key, entry);
     return entry;
   }
 
