@@ -19,11 +19,7 @@ import {
   createResolvedRasterBakePlan,
 } from "../vendor/glyph.js";
 
-const WASM_FILES = {
-  shaper: "text-shaper.wasm",
-  fontBaker: "font-baker.wasm",
-  bitmapBaker: "bitmap-baker.wasm",
-};
+export const WASM_FILES = ["text-shaper.wasm", "font-baker.wasm", "bitmap-baker.wasm"];
 
 // The engine needs one raster format per font. We rasterize glyphs ourselves,
 // so this is the smallest strike glyph accepts, covering a single space.
@@ -102,22 +98,15 @@ const CONFIG = defineGlyphConfig({
 
 let enginePromise = null;
 
-export function getGlyphEngine(runtime) {
-  if (!enginePromise) enginePromise = createEngine(runtime);
+// loadWasm(filename) resolves to the bytes of one of WASM_FILES. glyph is a
+// singleton per page, so the first caller's loader wins.
+export function getGlyphEngine(loadWasm) {
+  if (!enginePromise) enginePromise = createEngine(loadWasm);
   return enginePromise;
 }
 
-async function loadFile(runtime, filename) {
-  const url = await runtime.assets.getProjectFileUrl(filename);
-  return runtime.assets.fetchArrayBuffer(url);
-}
-
-async function createEngine(runtime) {
-  const [shaperWasm, fontBakerWasm, bitmapBakerWasm] = await Promise.all([
-    loadFile(runtime, WASM_FILES.shaper),
-    loadFile(runtime, WASM_FILES.fontBaker),
-    loadFile(runtime, WASM_FILES.bitmapBaker),
-  ]);
+async function createEngine(loadWasm) {
+  const [shaperWasm, fontBakerWasm, bitmapBakerWasm] = await Promise.all(WASM_FILES.map(loadWasm));
   await glyph.init({ wasm: shaperWasm });
   const fontBaker = await createFontBaker(fontBakerWasm);
   const bitmapModule = bitmapBakerFromCore(await createBitmapBaker(bitmapBakerWasm));

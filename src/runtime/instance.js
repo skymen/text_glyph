@@ -1,227 +1,101 @@
 import { id, addonType } from "../../config.caw.js";
 import AddonTypeMap from "../../template/addonTypeMap.js";
+import { createShared, TextCore } from "./textCore.js";
+import { FONT_EXTS } from "./fontManager.js";
 import { getGlyphEngine } from "./glyphEngine.js";
-import { FontManager } from "./fontManager.js";
-import { GlyphAtlas, bucketPpem } from "./atlas.js";
-import { parseBBCode, graphemeEnds, stripTags } from "./bbcode.js";
+import { graphemeEnds } from "./bbcode.js";
+import { parseOpenType } from "../vendor/glyph.js";
 
-const PT_TO_PX = 4 / 3;
-const WRAP = ["word", "character"];
-const DIRECTION = ["ltr", "rtl", "auto"];
-const FAKE_ITALIC_SHEAR = 0.2;
-const CHUNK_QUADS = 2048;
-const SCRATCH_OUT = new Float64Array(8);
-const SCRATCH_PTS = new Float64Array(8);
-const CHUNK_INDICES = (() => {
-  const idx = new Uint16Array(CHUNK_QUADS * 6);
-  for (let q = 0; q < CHUNK_QUADS; q++) {
-    const v = q * 4, o = q * 6;
-    idx[o] = v; idx[o + 1] = v + 1; idx[o + 2] = v + 2;
-    idx[o + 3] = v; idx[o + 4] = v + 2; idx[o + 5] = v + 3;
-  }
-  return idx;
-})();
+function stemOf(name) {
+  const slash = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
+  const base = slash === -1 ? name : name.substring(slash + 1);
+  const dot = base.lastIndexOf(".");
+  return (dot === -1 ? base : base.substring(0, dot)).toLowerCase();
+}
 
 // Engine, font manager and atlas are shared by every instance of one runtime.
 const sharedByRuntime = new WeakMap();
 function getShared(runtime) {
   let s = sharedByRuntime.get(runtime);
   if (s) return s;
-  s = { engine: null, fonts: new FontManager(runtime), atlas: new GlyphAtlas() };
-  sharedByRuntime.set(runtime, s);
-  const ready = getGlyphEngine(runtime).then(
-    (engine) => {
-      s.engine = engine;
-      runtime.sdk.updateRender();
+  let fileIndex = null;
+  const loadProjectFile = async (name) => runtime.assets.fetchArrayBuffer(await runtime.assets.getProjectFileUrl(name));
+  const adapter = {
+    createEngine: () => getGlyphEngine(loadProjectFile),
+    parseFont: parseOpenType,
+    findFile(stems) {
+      if (!fileIndex) {
+        fileIndex = new Map();
+        for (const entry of runtime.assets.projectFileList) {
+          const lower = entry.name.toLowerCase();
+          if (!FONT_EXTS.some((ext) => lower.endsWith(ext))) continue;
+          const stem = stemOf(entry.name);
+          if (!fileIndex.has(stem)) fileIndex.set(stem, entry.name);
+        }
+      }
+      for (let i = 0; i < stems.length; i++) {
+        const name = fileIndex.get(stems[i]);
+        if (name) return { name, index: i };
+      }
+      return null;
     },
-    (e) => console.error("[Text Glyph] engine failed to start", e)
-  );
-  runtime.sdk.addLoadPromise(ready);
-  return s;
-}
-
-class QuadBatch {
-  constructor() {
-    this.count = 0;
-    this.pos = new Float32Array(12 * 256);
-    this.uv = new Float32Array(8 * 256);
-    this.col = new Float32Array(16 * 256);
-  }
-
-  push(x0, y0, x1, y1, x2, y2, x3, y3, z, u0, v0, u1, v1, r, g, b, a) {
-    if ((this.count + 1) * 12 > this.pos.length) {
-      const n = this.count * 2;
-      const pos = new Float32Array(12 * n); pos.set(this.pos); this.pos = pos;
-      const uv = new Float32Array(8 * n); uv.set(this.uv); this.uv = uv;
-      const col = new Float32Array(16 * n); col.set(this.col); this.col = col;
-    }
-    const p = this.pos, t = this.uv, c = this.col;
-    let o = this.count * 12;
-    p[o] = x0; p[o + 1] = y0; p[o + 2] = z;
-    p[o + 3] = x1; p[o + 4] = y1; p[o + 5] = z;
-    p[o + 6] = x2; p[o + 7] = y2; p[o + 8] = z;
-    p[o + 9] = x3; p[o + 10] = y3; p[o + 11] = z;
-    o = this.count * 8;
-    t[o] = u0; t[o + 1] = v0; t[o + 2] = u1; t[o + 3] = v0;
-    t[o + 4] = u1; t[o + 5] = v1; t[o + 6] = u0; t[o + 7] = v1;
-    o = this.count * 16;
-    const pr = r * a, pg = g * a, pb = b * a;
-    for (let k = 0; k < 4; k++) {
-      c[o] = pr; c[o + 1] = pg; c[o + 2] = pb; c[o + 3] = a;
-      o += 4;
-    }
-    this.count++;
-  }
-
-  draw(renderer) {
-    for (let start = 0; start < this.count; start += CHUNK_QUADS) {
-      const n = Math.min(CHUNK_QUADS, this.count - start);
-      renderer.drawMesh(
-        this.pos.subarray(start * 12, (start + n) * 12),
-        this.uv.subarray(start * 8, (start + n) * 8),
-        CHUNK_INDICES.subarray(0, n * 6),
-        this.col.subarray(start * 16, (start + n) * 16)
-      );
-    }
-  }
-}
-
-// Style spans may not split a grapheme cluster. Move offending boundaries back
-// to the previous cluster boundary and drop spans that become empty.
-function snapSpansToClusters(plain, spans) {
-  const boundaries = new Set(graphemeEnds(plain));
-  boundaries.add(0);
-  const ends = Array.from(boundaries).sort((a, b) => a - b);
-  const snap = (offset) => {
-    let lo = 0, hi = ends.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (ends[mid] <= offset) lo = mid; else hi = mid - 1;
-    }
-    return ends[lo];
+    loadFile: loadProjectFile,
+    onChange: () => runtime.sdk.updateRender(),
   };
-  for (let i = 0; i < spans.length; i++) {
-    if (!boundaries.has(spans[i].start)) {
-      const b = snap(spans[i].start);
-      spans[i].start = b;
-      if (i > 0 && spans[i - 1].end > b) spans[i - 1].end = b;
-    }
-    if (!boundaries.has(spans[i].end)) spans[i].end = snap(spans[i].end);
-  }
-  for (let i = spans.length - 1; i >= 0; i--) {
-    if (spans[i].start >= spans[i].end) spans.splice(i, 1);
-  }
-}
-
-function fragIndexFor(spans, offset) {
-  let lo = 0, hi = spans.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (spans[mid].start <= offset) lo = mid; else hi = mid - 1;
-  }
-  return lo;
-}
-
-// Per-frame draw context shared by the emit helpers, so the glyph loop does
-// not allocate closures.
-function batchFor(fc, pass, page) {
-  let b = fc.passes[pass].get(page);
-  if (!b) {
-    b = new QuadBatch();
-    fc.passes[pass].set(page, b);
-  }
-  return b;
-}
-
-function emitRect(fc, pass, lx, ty, rw, rh, r, g, b, a) {
-  const rx = lx + rw, by = ty + rh, w = fc.white;
-  batchFor(fc, pass, w.page).push(
-    fc.ox + lx * fc.ex + ty * fc.fx, fc.oy + lx * fc.ey + ty * fc.fy,
-    fc.ox + rx * fc.ex + ty * fc.fx, fc.oy + rx * fc.ey + ty * fc.fy,
-    fc.ox + rx * fc.ex + by * fc.fx, fc.oy + rx * fc.ey + by * fc.fy,
-    fc.ox + lx * fc.ex + by * fc.fx, fc.oy + lx * fc.ey + by * fc.fy,
-    fc.z, w.u0, w.v0, w.u1, w.v1, r, g, b, a
-  );
-}
-
-// Uses the current glyph's transform fields on fc (gx, gy, rs, cx, cy, cs, sn, sx, sy, shear, rotate).
-function emitGlyph(fc, entry, pass, cr, cg, cb, ca) {
-  const lx = fc.gx + entry.ox / fc.rs, ty = fc.gy + entry.oy / fc.rs;
-  const rx = lx + entry.w / fc.rs, by = ty + entry.h / fc.rs;
-  const out = SCRATCH_OUT, pts = SCRATCH_PTS;
-  pts[0] = lx; pts[1] = ty; pts[2] = rx; pts[3] = ty;
-  pts[4] = rx; pts[5] = by; pts[6] = lx; pts[7] = by;
-  for (let k = 0; k < 4; k++) {
-    let px = pts[k * 2], py = pts[k * 2 + 1];
-    px += fc.shear * (fc.gy - py);
-    if (fc.rotate) {
-      const vx = (px - fc.cx) * fc.sx, vy = (py - fc.cy) * fc.sy;
-      px = fc.cx + vx * fc.cs - vy * fc.sn;
-      py = fc.cy + vx * fc.sn + vy * fc.cs;
-    }
-    out[k * 2] = fc.ox + px * fc.ex + py * fc.fx;
-    out[k * 2 + 1] = fc.oy + px * fc.ey + py * fc.fy;
-  }
-  batchFor(fc, pass, entry.page).push(
-    out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
-    fc.z, entry.u0, entry.v0, entry.u1, entry.v1, cr, cg, cb, ca
-  );
+  s = createShared(adapter);
+  sharedByRuntime.set(runtime, s);
+  runtime.sdk.addLoadPromise(s.ready);
+  return s;
 }
 
 export default function (parentClass) {
   return class extends parentClass {
     constructor() {
       super();
-      this._text = "Text";
-      this._bbcode = true;
-      this._family = "Arial";
-      this._ptSize = 12;
-      this._lineHeightOffset = 0;
-      this._bold = false;
-      this._italic = false;
-      this._color = [0, 0, 0];
-      this._hAlign = 0;
-      this._vAlign = 0;
-      this._wrap = 0;
-      this._direction = 0;
+      this._shared = getShared(this.runtime);
+      const core = (this._core = new TextCore(this._shared));
       const p = this._getInitProperties();
       if (p) {
-        this._text = String(p[0] ?? "");
-        this._bbcode = !!p[1];
-        this._family = String(p[2] || "Arial");
-        this._ptSize = Number(p[3]) || 12;
-        this._lineHeightOffset = Number(p[4]) || 0;
-        this._bold = !!p[5];
-        this._italic = !!p[6];
-        if (Array.isArray(p[7])) this._color = [p[7][0], p[7][1], p[7][2]];
-        this._hAlign = p[8] | 0;
-        this._vAlign = p[9] | 0;
-        this._wrap = p[10] | 0;
-        this._direction = p[11] | 0;
+        // Property order from config.caw.js. The "fontInfo" info property has
+        // no value and is not part of this list.
+        core.text = String(p[0] ?? "");
+        core.bbcode = !!p[1];
+        core.family = String(p[2] || "Arial");
+        core.ptSize = Number(p[3]) || 12;
+        core.lineHeightOffset = Number(p[4]) || 0;
+        core.bold = !!p[5];
+        core.italic = !!p[6];
+        if (Array.isArray(p[7])) core.color = [p[7][0], p[7][1], p[7][2]];
+        core.alignX = Number(p[8]) || 0;
+        core.alignY = Number(p[9]) || 0;
+        core.justify = p[10] | 0;
+        core.wrap = p[11] | 0;
+        core.overflow = !!p[12];
+        core.ellipsis = !!p[13];
+        core.maxLines = Math.max(0, p[14] | 0);
+        core.direction = p[15] | 0;
+        this.originX = Number(p[16]) || 0;
+        this.originY = Number(p[17]) || 0;
+        this._iconSid = typeof p[18] === "number" ? p[18] : 0;
+        core.letterSpacing = Number(p[19]) || 0;
+        core.wordSpacing = Number(p[20]) || 0;
+        core.paragraphSpacing = Number(p[21]) || 0;
+        core.columns = Math.max(1, p[22] | 0);
+        core.columnGap = Math.max(0, Number(p[23]) || 0);
+        core.justifyMin = Math.min(1, Math.max(0.01, Number(p[24]) || 1));
+        core.justifyMax = Math.max(0, Number(p[25]) || 0);
+        core.justifyLetter = Math.max(0, Number(p[26]) || 0);
       }
-      this._shared = getShared(this.runtime);
-      this._tf = {};
-      this._controller = null;
-      this._insp = null;
-      this._metas = null;
-      this._glyphFrag = null;
-      this._glyphLine = null;
-      this._glyphFragDirty = false;
-      this._fragsSeen = null;
-      this._layoutKey = "";
-      this._parsed = null;
-      this._parseDirty = true;
-      this._layoutDirty = true;
-      this._fontVersionSeen = -1;
-      this._layoutW = -1;
-      this._layoutH = -1;
-      this._offsetY = 0;
-      this._fc = null;
+      this._iconClass = null;
+      this._iconCache = new Map();
+      core.iconResolver = (name, frame) => this._tgResolveIcon(name, frame);
+      this._exclusions = [];
       this._twStart = -1;
       this._twEnd = -1;
       this._twEnds = null;
       this._twReveal = Infinity;
-      this._shared.fonts.getFace(this._family, this._bold, this._italic);
+      this._frame = { ox: 0, oy: 0, ex: 1, ey: 0, fx: 0, fy: 1, z: 0, ppu: 1, tint: null, opacity: 1, twReveal: Infinity, pixelRounding: false };
+      this._shared.fonts.getFace(core.family, core.bold, core.italic);
     }
 
     _trigger(method) {
@@ -253,18 +127,15 @@ export default function (parentClass) {
 
     _release() {
       this._tgCancelTypewriter();
-      if (this._controller) {
-        this._controller.dispose();
-        this._controller = null;
-      }
-      this._insp = null;
+      this._tgClearExclusions();
+      this._core.dispose();
       super._release();
     }
 
     // Same script surface as ITextInstance, so behaviors written for the
     // built-in Text object (Animate Text) work on this one too.
     get text() {
-      return this._text;
+      return this._core.text;
     }
 
     set text(value) {
@@ -273,11 +144,12 @@ export default function (parentClass) {
     }
 
     get fontColor() {
-      return [this._color[0], this._color[1], this._color[2]];
+      const c = this._core.color;
+      return [c[0], c[1], c[2]];
     }
 
     get sizePt() {
-      return this._ptSize;
+      return this._core.ptSize;
     }
 
     get textWidth() {
@@ -290,212 +162,221 @@ export default function (parentClass) {
 
     // ---- state setters used by ACEs ----
 
-    _tgMarkDirty(reparse) {
-      this._layoutDirty = true;
-      if (reparse) this._parseDirty = true;
-      this.runtime.sdk.updateRender();
+    _tgChanged(changed) {
+      if (changed) this.runtime.sdk.updateRender();
     }
 
     _tgSetText(text) {
-      text = String(text);
-      if (this._text === text) return;
-      this._text = text;
-      this._tgMarkDirty(true);
+      this._tgChanged(this._core.setText(text));
     }
 
     _tgSetBBCode(enabled) {
-      enabled = !!enabled;
-      if (this._bbcode === enabled) return;
-      this._bbcode = enabled;
-      this._tgMarkDirty(true);
+      this._tgChanged(this._core.setBBCode(enabled));
     }
 
     _tgSetFont(family, bold, italic) {
-      family = String(family || this._family);
-      bold = !!bold;
-      italic = !!italic;
-      if (this._family === family && this._bold === bold && this._italic === italic) return;
-      this._family = family;
-      this._bold = bold;
-      this._italic = italic;
-      this._shared.fonts.getFace(family, bold, italic);
-      this._tgMarkDirty(false);
+      this._tgChanged(this._core.setFont(family, bold, italic));
     }
 
     _tgSetSize(pt) {
-      pt = Math.max(0.1, Number(pt) || 0.1);
-      if (this._ptSize === pt) return;
-      this._ptSize = pt;
-      this._tgMarkDirty(false);
+      this._tgChanged(this._core.setSize(pt));
     }
 
     _tgSetColor(rgb) {
-      this._color = [rgb[0], rgb[1], rgb[2]];
-      this.runtime.sdk.updateRender();
+      this._tgChanged(this._core.setColor(rgb));
     }
 
     _tgSetLineHeight(v) {
-      v = Number(v) || 0;
-      if (this._lineHeightOffset === v) return;
-      this._lineHeightOffset = v;
-      this._tgMarkDirty(false);
+      this._tgChanged(this._core.setLineHeight(v));
     }
 
-    _tgSetHAlign(i) {
-      i |= 0;
-      if (this._hAlign === i) return;
-      this._hAlign = i;
-      this._tgMarkDirty(false);
+    _tgSetAlignment(x, y) {
+      this._tgChanged(this._core.setAlignment(x, y));
     }
 
-    _tgSetVAlign(i) {
-      i |= 0;
-      if (this._vAlign === i) return;
-      this._vAlign = i;
-      this._tgMarkDirty(false);
+    _tgSetJustify(i) {
+      this._tgChanged(this._core.setJustify(i));
     }
 
     _tgSetWrap(i) {
-      i |= 0;
-      if (this._wrap === i) return;
-      this._wrap = i;
-      this._tgMarkDirty(false);
+      this._tgChanged(this._core.setWrap(i));
     }
 
     _tgSetDirection(i) {
-      i |= 0;
-      if (this._direction === i) return;
-      this._direction = i;
-      this._tgMarkDirty(false);
+      this._tgChanged(this._core.setDirection(i));
+    }
+
+    _tgSetOverflow(v) {
+      this._tgChanged(this._core.setOverflow(v));
+    }
+
+    _tgSetMaxLines(n) {
+      this._tgChanged(this._core.setMaxLines(n));
+    }
+
+    _tgSetLetterSpacing(v) {
+      this._tgChanged(this._core.setLetterSpacing(v));
+    }
+
+    _tgSetWordSpacing(v) {
+      this._tgChanged(this._core.setWordSpacing(v));
+    }
+
+    _tgSetParagraphSpacing(v) {
+      this._tgChanged(this._core.setParagraphSpacing(v));
+    }
+
+    _tgSetColumns(count, gap) {
+      this._tgChanged(this._core.setColumns(count, gap));
+    }
+
+    _tgSetJustifyTuning(min, max, letter) {
+      this._tgChanged(this._core.setJustifyTuning(min, max, letter));
+    }
+
+    // ---- icons ----
+
+    _tgSetIconSet(objectClass) {
+      this._iconClass = objectClass;
+      this._iconCache.clear();
+      this._tgChanged(this._core._dirty(false));
+    }
+
+    _tgIconClass() {
+      if (this._iconClass) return this._iconClass;
+      if (this._iconSid > 0) this._iconClass = this.runtime.sdk.getObjectClassBySid(this._iconSid);
+      return this._iconClass;
+    }
+
+    // Frames come from a Sprite instance, the only public way to reach a
+    // Sprite's animations, so the icon set needs an instance in the layout.
+    _tgResolveIcon(name, frame) {
+      const key = name + "\u0001" + frame;
+      const cached = this._iconCache.get(key);
+      if (cached) return cached;
+      const oc = this._tgIconClass();
+      if (!oc) return null;
+      const inst = oc.getFirstInstance();
+      if (!inst) return null;
+      if (!inst.getAnimation) throw new Error("[Text Glyph] the icon set must be a Sprite");
+      const anim = inst.getAnimation(name);
+      if (!anim) return null;
+      const frames = anim.getFrames();
+      const f = frames[Math.min(frame, frames.length - 1)];
+      const r = f.getTexRect();
+      const icon = {
+        width: f.width,
+        height: f.height,
+        texture: (renderer) => f.getTexture(renderer),
+        uv: [r.x, r.y, r.x + r.width, r.y + r.height],
+      };
+      this._iconCache.set(key, icon);
+      return icon;
+    }
+
+    // ---- flow exclusions ----
+
+    _tgAddExclusion(objectClass, side, margin) {
+      for (const inst of objectClass.getPickedInstances()) {
+        if (this._exclusions.some((e) => e.inst === inst)) continue;
+        const entry = { inst, side: side | 0, margin: Number(margin) || 0, key: "u" + inst.uid, onDestroy: null };
+        entry.onDestroy = () => this._tgRemoveExclusionEntry(entry);
+        inst.addEventListener("destroy", entry.onDestroy);
+        this._exclusions.push(entry);
+      }
+      this.runtime.sdk.updateRender();
+    }
+
+    _tgRemoveExclusion(objectClass) {
+      for (const inst of objectClass.getPickedInstances()) {
+        const entry = this._exclusions.find((e) => e.inst === inst);
+        if (entry) this._tgRemoveExclusionEntry(entry);
+      }
+      this.runtime.sdk.updateRender();
+    }
+
+    _tgRemoveExclusionEntry(entry) {
+      const i = this._exclusions.indexOf(entry);
+      if (i === -1) return;
+      entry.inst.removeEventListener("destroy", entry.onDestroy);
+      this._exclusions.splice(i, 1);
+    }
+
+    _tgClearExclusions() {
+      while (this._exclusions.length) this._tgRemoveExclusionEntry(this._exclusions[0]);
+    }
+
+    // World polygon of an instance: the collision polygon of a Sprite's
+    // current frame (points are image pixels relative to the origin), or the
+    // bounding quad of anything else.
+    _tgWorldPolygon(inst) {
+      if (inst.animation) {
+        const frame = inst.animation.getFrames()[inst.animationFrame];
+        const n = frame.getPolyPointCount();
+        if (n >= 3) {
+          const sx = inst.width / frame.width, sy = inst.height / frame.height;
+          const cs = Math.cos(inst.angle), sn = Math.sin(inst.angle);
+          const out = [];
+          for (let i = 0; i < n; i++) {
+            const [px, py] = frame.getPolyPoint(i);
+            const x = px * sx, y = py * sy;
+            out.push([inst.x + x * cs - y * sn, inst.y + x * sn + y * cs]);
+          }
+          return out;
+        }
+      }
+      const q = inst.getBoundingQuad();
+      return [[q.p1.x, q.p1.y], [q.p2.x, q.p2.y], [q.p3.x, q.p3.y], [q.p4.x, q.p4.y]];
+    }
+
+    _tgSyncExclusions() {
+      if (!this._exclusions.length && !this._core.exclusions.length) return;
+      const a = this._tgLocalAxes();
+      const list = [];
+      for (const e of this._exclusions) {
+        const vertices = this._tgWorldPolygon(e.inst).map(([x, y]) => {
+          const dx = x - a.ox, dy = y - a.oy;
+          return [dx * a.ex + dy * a.ey, dx * a.fx + dy * a.fy];
+        });
+        list.push({ key: e.key, vertices, side: e.side, margin: e.margin });
+      }
+      this._core.setExclusions(list);
+    }
+
+    _tgSetEllipsis(v) {
+      this._tgChanged(this._core.setEllipsis(v));
+    }
+
+    _tgSetOrigin(x, y) {
+      this.originX = Number(x) || 0;
+      this.originY = Number(y) || 0;
+    }
+
+    _tgSetOriginX(x) {
+      this.originX = Number(x) || 0;
+    }
+
+    _tgSetOriginY(y) {
+      this.originY = Number(y) || 0;
+    }
+
+    _tgSetHAlign(x) {
+      this._tgSetAlignment(x, this._core.alignY);
+    }
+
+    _tgSetVAlign(y) {
+      this._tgSetAlignment(this._core.alignX, y);
     }
 
     _tgPlainText() {
-      return this._bbcode ? stripTags(this._text) : this._text;
+      return this._core.plainText();
     }
 
     // ---- layout ----
 
     _tgEnsureLayout() {
-      const s = this._shared;
-      if (!s.engine) return false;
-      const fonts = s.fonts;
-      if (this._fontVersionSeen !== fonts.version) {
-        this._fontVersionSeen = fonts.version;
-        this._layoutDirty = true;
-      }
-      const w = Math.max(1, Math.abs(this.width));
-      const h = Math.max(1, Math.abs(this.height));
-      if (w !== this._layoutW || h !== this._layoutH) {
-        this._layoutW = w;
-        this._layoutH = h;
-        this._layoutDirty = true;
-      }
-      if (!this._layoutDirty) return !!this._insp;
-
-      if (this._parseDirty) {
-        this._parsed = parseBBCode(this._text, this._bbcode);
-        this._parseDirty = false;
-      }
-      const base = fonts.getFace(this._family, this._bold, this._italic);
-      if (!base) return false;
-      const parsed = this._parsed;
-      if (!parsed.plain.length) {
-        this._insp = null;
-        this._layoutKey = "";
-        this._layoutDirty = false;
-        return false;
-      }
-
-      // Per-fragment metadata is ours. Glyph only needs the spans that change
-      // shaping: a different face or font size. Adjacent equal spans merge.
-      const basePx = this._ptSize * PT_TO_PX;
-      const frags = parsed.frags;
-      const spans = [];
-      let key = "";
-      for (let k = 0; k < frags.length; k++) {
-        const f = frags[k];
-        const st = f.style;
-        const bold = this._bold || st.bold;
-        const italic = this._italic || st.italic;
-        let face = base;
-        if (st.font || bold !== this._bold || italic !== this._italic)
-          face = fonts.getFace(st.font || this._family, bold, italic) || base;
-        const sizePx = st.sizePt > 0 ? st.sizePt * PT_TO_PX : basePx;
-        f.face = face;
-        if (face === base && sizePx === basePx) continue;
-        const last = spans[spans.length - 1];
-        if (last && last.end === f.start && last.face === face && last.sizePx === sizePx) {
-          last.end = f.end;
-          continue;
-        }
-        spans.push({ start: f.start, end: f.end, face, sizePx });
-      }
-      for (const sp of spans) key += sp.start + ":" + sp.end + ":" + sp.face.key + ":" + sp.sizePx + ",";
-      const fm = base.font.metrics;
-      const natural = (fm.ascender - fm.descender + fm.lineGap) / fm.unitsPerEm;
-      const lineHeight = Math.max(0.1, natural + this._lineHeightOffset / basePx);
-      const direction = DIRECTION[this._direction];
-      let align = "center";
-      if (this._hAlign !== 1)
-        align = (this._hAlign === 0) === (direction !== "rtl") ? "start" : "end";
-      key = [parsed.plain, w, basePx, lineHeight, direction, align, this._wrap, base.key, key].join("\u0001");
-      this._metas = frags;
-
-      if (key !== this._layoutKey || !this._insp) {
-        const glyphSpans = spans.map((sp) => {
-          const span = { start: sp.start, end: sp.end };
-          if (sp.face !== base) span.font = sp.face.font;
-          if (sp.sizePx !== basePx) span.style = { fontSize: sp.sizePx };
-          return span;
-        });
-        snapSpansToClusters(parsed.plain, glyphSpans);
-        const state = {
-          font: base.font,
-          text: { text: parsed.plain, spans: glyphSpans },
-          transform: this._tf,
-          style: { fontSize: basePx, lineHeight, direction },
-          layout: { wrap: WRAP[this._wrap], align, overflow: "visible" },
-          constraints: { width: { mode: "exact", size: w } },
-        };
-        try {
-          if (this._controller) this._controller.update(state);
-          else this._controller = s.engine.createText(state);
-          this._insp = this._controller.inspect();
-        } catch (e) {
-          console.error("[Text Glyph] layout failed", e);
-          this._insp = null;
-          this._layoutKey = "";
-          this._layoutDirty = false;
-          return false;
-        }
-        this._layoutKey = key;
-        const insp = this._insp;
-        const n = insp.glyphCount;
-        if (!this._glyphLine || this._glyphLine.length !== n) {
-          this._glyphLine = new Int32Array(n);
-          this._glyphFrag = new Int32Array(n);
-        }
-        const gl = this._glyphLine;
-        for (let l = 0; l < insp.lineCount; l++) {
-          const start = insp.lineGlyphStarts[l], count = insp.lineGlyphCounts[l];
-          for (let k = start; k < start + count; k++) gl[k] = l;
-        }
-        this._glyphFragDirty = true;
-      }
-
-      // Fragment boundaries can move without the layout changing (tags only),
-      // so the glyph to fragment map is refreshed on every reparse.
-      if (this._glyphFragDirty || this._fragsSeen !== parsed) {
-        const insp = this._insp, gf = this._glyphFrag;
-        for (let i = 0; i < insp.glyphCount; i++) gf[i] = fragIndexFor(frags, insp.clusters[i]);
-        this._glyphFragDirty = false;
-        this._fragsSeen = parsed;
-      }
-
-      const ch = this._insp.contentHeight;
-      this._offsetY = this._vAlign === 1 ? (h - ch) / 2 : this._vAlign === 2 ? h - ch : 0;
-      this._layoutDirty = false;
-      return true;
+      this._tgSyncExclusions();
+      return this._core.ensureLayout(this.width, this.height);
     }
 
     // Device pixels per layout unit at this instance's layer, so glyphs are
@@ -509,126 +390,37 @@ export default function (parentClass) {
     }
 
     _tgTextWidth() {
-      return this._tgEnsureLayout() ? this._insp.contentWidth : 0;
+      return this._tgEnsureLayout() ? this._core.textWidth() : 0;
     }
 
     _tgTextHeight() {
-      return this._tgEnsureLayout() ? this._insp.contentHeight : 0;
+      return this._tgEnsureLayout() ? this._core.textHeight() : 0;
     }
 
     _tgLineCount() {
-      return this._tgEnsureLayout() ? this._insp.lineCount : 0;
+      return this._tgEnsureLayout() ? this._core.lineCount() : 0;
     }
 
     // ---- drawing ----
 
     _draw(renderer) {
       if (!this._tgEnsureLayout()) return;
-      const atlas = this._shared.atlas;
-      atlas.beginFrame(renderer);
-      const insp = this._insp, metas = this._metas, gf = this._glyphFrag, gl = this._glyphLine;
-      const lines = insp.lines;
-      const w = this._layoutW, h = this._layoutH;
+      const w = Math.max(1, Math.abs(this.width)), h = Math.max(1, Math.abs(this.height));
       const q = this.getBoundingQuad(true);
-      const fc = (this._fc ||= { passes: [new Map(), new Map(), new Map(), new Map()] });
-      fc.ox = q.p1.x;
-      fc.oy = q.p1.y;
-      if (this.runtime.isPixelRoundingEnabled) {
-        fc.ox = Math.round(fc.ox);
-        fc.oy = Math.round(fc.oy);
-      }
-      fc.ex = (q.p2.x - q.p1.x) / w;
-      fc.ey = (q.p2.y - q.p1.y) / w;
-      fc.fx = (q.p4.x - q.p1.x) / h;
-      fc.fy = (q.p4.y - q.p1.y) / h;
-      fc.z = renderer.getCurrentZ();
-      fc.white = atlas.white;
-      for (const m of fc.passes) for (const b of m.values()) b.count = 0;
-      const ppu = this._tgPixelsPerUnit();
-      const ic = this.colorRgb, io = this.opacity;
-      const baseColor = this._color;
-      const offY = this._offsetY;
-      const twReveal = this._twReveal;
-
-      for (let i = 0; i < insp.glyphCount; i++) {
-        const meta = metas[gf[i]];
-        const st = meta.style;
-        if (st.hide) continue;
-        if (insp.clusters[i] >= twReveal) continue;
-        const size = insp.glyphFontSizes[i];
-        const adv = insp.glyphAdvances[i];
-        const dx = st.offsetX.percent ? (st.offsetX.value / 100) * size : st.offsetX.value;
-        const dy = st.offsetY.percent ? (st.offsetY.value / 100) * size : st.offsetY.value;
-        const gx = insp.x[i] + dx;
-        const gy = insp.y[i] + offY + dy;
-        const alpha = st.opacity * io;
-        if (alpha <= 0) continue;
-        const c = st.color;
-        const r = (c ? c[0] : baseColor[0]) * ic[0];
-        const g = (c ? c[1] : baseColor[1]) * ic[1];
-        const b = (c ? c[2] : baseColor[2]) * ic[2];
-        const a = alpha * (c ? c[3] : 1);
-        const line = lines[gl[i]];
-
-        if (st.background) {
-          const bg = st.background;
-          emitRect(fc, 0, gx, gy - line.ascent, adv, line.lineHeight, bg[0] * ic[0], bg[1] * ic[1], bg[2] * ic[2], alpha * bg[3]);
-        }
-
-        const face = meta.face;
-        const gid = insp.glyphIds[i];
-        const ppem = bucketPpem(size * ppu);
-        const rs = ppem / size;
-        fc.gx = gx;
-        fc.gy = gy;
-        fc.rs = rs;
-        fc.cx = gx + adv / 2;
-        fc.cy = gy - size * 0.35;
-        fc.sx = st.scaleX;
-        fc.sy = st.scaleY;
-        fc.rotate = st.angle !== 0 || st.scaleX !== 1 || st.scaleY !== 1;
-        if (fc.rotate) {
-          const ang = (st.angle * Math.PI) / 180;
-          fc.cs = Math.cos(ang);
-          fc.sn = Math.sin(ang);
-        }
-        fc.shear = face.fakeItalic ? FAKE_ITALIC_SHEAR : 0;
-
-        // Outline width follows the built-in Text object: size/64 per unit of thickness.
-        const strokePx = Math.max(0.5, Math.round(((size * st.lineThickness) / 64) * rs * 2) / 2);
-        if (st.outline && !st.stroke) {
-          const e = atlas.get(face, gid, ppem, face.fakeBold, strokePx);
-          if (e) {
-            const oc = st.outline;
-            emitGlyph(fc, e, 1, oc[0] * ic[0], oc[1] * ic[1], oc[2] * ic[2], alpha * oc[3]);
-          }
-        }
-        const e = atlas.get(face, gid, ppem, face.fakeBold, st.stroke ? strokePx : 0);
-        if (e) emitGlyph(fc, e, 2, r, g, b, a);
-
-        if (st.underline || st.strike) {
-          const fm = face.font.metrics;
-          const k = size / fm.unitsPerEm;
-          if (st.underline) {
-            const th = Math.max(0.5, fm.underlineThickness * k * st.lineThickness);
-            emitRect(fc, 3, gx, gy - fm.underlinePosition * k - th / 2, adv, th, r, g, b, a);
-          }
-          if (st.strike) {
-            const th = Math.max(0.5, fm.strikeoutSize * k * st.lineThickness);
-            emitRect(fc, 3, gx, gy - fm.strikeoutPosition * k - th / 2, adv, th, r, g, b, a);
-          }
-        }
-      }
-
-      atlas.flush(renderer);
-      renderer.setTextureFillMode();
-      for (const pass of fc.passes) {
-        for (const [page, b] of pass) {
-          if (!b.count) continue;
-          renderer.setTexture(page.texture);
-          b.draw(renderer);
-        }
-      }
+      const f = this._frame;
+      f.ox = q.p1.x;
+      f.oy = q.p1.y;
+      f.ex = (q.p2.x - q.p1.x) / w;
+      f.ey = (q.p2.y - q.p1.y) / w;
+      f.fx = (q.p4.x - q.p1.x) / h;
+      f.fy = (q.p4.y - q.p1.y) / h;
+      f.z = renderer.getCurrentZ();
+      f.ppu = this._tgPixelsPerUnit();
+      f.tint = this.colorRgb;
+      f.opacity = this.opacity;
+      f.twReveal = this._twReveal;
+      f.pixelRounding = this.runtime.isPixelRoundingEnabled;
+      this._core.draw(renderer, f);
     }
 
     _onRendererContextLost() {
@@ -692,90 +484,70 @@ export default function (parentClass) {
 
     // ---- tags ----
 
-    _tgLocalFromWorld(x, y) {
+    _tgLocalAxes() {
+      const w = Math.max(1, Math.abs(this.width)), h = Math.max(1, Math.abs(this.height));
       const q = this.getBoundingQuad(true);
-      const w = this._layoutW, h = this._layoutH;
-      const ex = (q.p2.x - q.p1.x) / w, ey = (q.p2.y - q.p1.y) / w;
-      const fx = (q.p4.x - q.p1.x) / h, fy = (q.p4.y - q.p1.y) / h;
-      const dx = x - q.p1.x, dy = y - q.p1.y;
-      return [dx * ex + dy * ey, dx * fx + dy * fy];
-    }
-
-    _tgGlyphBox(i) {
-      const insp = this._insp;
-      const line = insp.lines[this._glyphLine[i]];
-      return [insp.x[i], insp.y[i] + this._offsetY - line.ascent, insp.glyphAdvances[i], line.lineHeight];
+      return {
+        ox: q.p1.x, oy: q.p1.y,
+        ex: (q.p2.x - q.p1.x) / w, ey: (q.p2.y - q.p1.y) / w,
+        fx: (q.p4.x - q.p1.x) / h, fy: (q.p4.y - q.p1.y) / h,
+      };
     }
 
     _tgTagAt(x, y) {
       if (!this._tgEnsureLayout()) return "";
-      const [lx, ly] = this._tgLocalFromWorld(x, y);
-      const insp = this._insp;
-      for (let i = 0; i < insp.glyphCount; i++) {
-        const [gx, top, adv, lh] = this._tgGlyphBox(i);
-        if (lx >= gx && lx < gx + adv && ly >= top && ly < top + lh)
-          return this._metas[this._glyphFrag[i]].style.tag;
-      }
-      return "";
-    }
-
-    _tgTagFrags(tag) {
-      if (!this._tgEnsureLayout()) return [];
-      tag = String(tag).toLowerCase();
-      const out = [];
-      this._metas.forEach((m, i) => {
-        if (m.style.tag && m.style.tag.toLowerCase() === tag) out.push(i);
-      });
-      return out;
+      const a = this._tgLocalAxes();
+      const dx = x - a.ox, dy = y - a.oy;
+      return this._core.tagAt(dx * a.ex + dy * a.ey, dx * a.fx + dy * a.fy);
     }
 
     _tgTagCount(tag) {
-      return this._tgTagFrags(tag).length;
+      return this._tgEnsureLayout() ? this._core.tagFrags(tag).length : 0;
     }
 
     // Returns { x, y, width, height } in layout coordinates, or null.
     _tgTagRect(tag, index) {
-      const frags = this._tgTagFrags(tag);
-      index = Math.floor(index);
-      if (index < 0 || index >= frags.length) return null;
-      const frag = frags[index];
-      const insp = this._insp;
-      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-      for (let i = 0; i < insp.glyphCount; i++) {
-        if (this._glyphFrag[i] !== frag) continue;
-        const [gx, top, adv, lh] = this._tgGlyphBox(i);
-        x0 = Math.min(x0, gx); y0 = Math.min(y0, top);
-        x1 = Math.max(x1, gx + adv); y1 = Math.max(y1, top + lh);
-      }
-      if (x0 === Infinity) return null;
-      const q = this.getBoundingQuad(true);
-      const w = this._layoutW, h = this._layoutH;
-      const ex = (q.p2.x - q.p1.x) / w, ey = (q.p2.y - q.p1.y) / w;
-      const fx = (q.p4.x - q.p1.x) / h, fy = (q.p4.y - q.p1.y) / h;
+      if (!this._tgEnsureLayout()) return null;
+      const b = this._core.tagBounds(tag, index);
+      if (!b) return null;
+      const a = this._tgLocalAxes();
       return {
-        x: q.p1.x + x0 * ex + y0 * fx,
-        y: q.p1.y + x0 * ey + y0 * fy,
-        width: x1 - x0,
-        height: y1 - y0,
+        x: a.ox + b[0] * a.ex + b[1] * a.fx,
+        y: a.oy + b[0] * a.ey + b[1] * a.fy,
+        width: b[2] - b[0],
+        height: b[3] - b[1],
       };
     }
 
     // ---- savegames and debugger ----
 
     _saveToJson() {
+      const c = this._core;
       const o = {
-        t: this._text,
-        bbc: this._bbcode,
-        fn: this._family,
-        ps: this._ptSize,
-        lho: this._lineHeightOffset,
-        b: this._bold,
-        i: this._italic,
-        c: this._color,
-        ha: this._hAlign,
-        va: this._vAlign,
-        wr: this._wrap,
-        dir: this._direction,
+        t: c.text,
+        bbc: c.bbcode,
+        fn: c.family,
+        ps: c.ptSize,
+        lho: c.lineHeightOffset,
+        b: c.bold,
+        i: c.italic,
+        c: c.color,
+        ax: c.alignX,
+        ay: c.alignY,
+        j: c.justify,
+        wr: c.wrap,
+        ov: c.overflow,
+        el: c.ellipsis,
+        ml: c.maxLines,
+        dir: c.direction,
+        ls: c.letterSpacing,
+        ws: c.wordSpacing,
+        ps: c.paragraphSpacing,
+        col: c.columns,
+        cg: c.columnGap,
+        jn: c.justifyMin,
+        jx: c.justifyMax,
+        jl: c.justifyLetter,
       };
       if (this._twEnd !== -1) o.tw = { st: this._twStart, en: this._twEnd, r: this._twReveal };
       return o;
@@ -783,20 +555,34 @@ export default function (parentClass) {
 
     _loadFromJson(o) {
       this._tgCancelTypewriter();
-      this._text = o.t;
-      this._bbcode = !!o.bbc;
-      this._family = o.fn;
-      this._ptSize = o.ps;
-      this._lineHeightOffset = o.lho;
-      this._bold = !!o.b;
-      this._italic = !!o.i;
-      this._color = o.c;
-      this._hAlign = o.ha;
-      this._vAlign = o.va;
-      this._wrap = o.wr;
-      this._direction = o.dir;
-      this._shared.fonts.getFace(this._family, this._bold, this._italic);
-      this._tgMarkDirty(true);
+      const c = this._core;
+      c.text = o.t;
+      c.bbcode = !!o.bbc;
+      c.family = o.fn;
+      c.ptSize = o.ps;
+      c.lineHeightOffset = o.lho;
+      c.bold = !!o.b;
+      c.italic = !!o.i;
+      c.color = o.c;
+      c.alignX = o.ax;
+      c.alignY = o.ay;
+      c.justify = o.j;
+      c.wrap = o.wr;
+      c.overflow = !!o.ov;
+      c.ellipsis = !!o.el;
+      c.maxLines = o.ml | 0;
+      c.direction = o.dir;
+      c.letterSpacing = o.ls || 0;
+      c.wordSpacing = o.ws || 0;
+      c.paragraphSpacing = o.ps || 0;
+      c.columns = Math.max(1, o.col | 0);
+      c.columnGap = o.cg || 0;
+      c.justifyMin = o.jn ?? 1;
+      c.justifyMax = o.jx || 0;
+      c.justifyLetter = o.jl || 0;
+      this._shared.fonts.getFace(c.family, c.bold, c.italic);
+      c._dirty(true);
+      this.runtime.sdk.updateRender();
       if (o.tw) {
         this._twEnds = graphemeEnds(this._tgPlainText());
         this._twStart = o.tw.st;
@@ -807,15 +593,18 @@ export default function (parentClass) {
     }
 
     _getDebuggerProperties() {
+      const c = this._core;
       return [
         {
           title: "Text Glyph",
           properties: [
-            { name: "Text", value: this._text, onedit: (v) => this._tgSetText(v) },
-            { name: "Font", value: this._family, onedit: (v) => this._tgSetFont(v, this._bold, this._italic) },
-            { name: "Size", value: this._ptSize, onedit: (v) => this._tgSetSize(v) },
-            { name: "Glyphs", value: this._insp ? this._insp.glyphCount : 0 },
-            { name: "Lines", value: this._insp ? this._insp.lineCount : 0 },
+            { name: "Text", value: c.text, onedit: (v) => this._tgSetText(v) },
+            { name: "Font", value: c.family, onedit: (v) => this._tgSetFont(v, c.bold, c.italic) },
+            { name: "Size", value: c.ptSize, onedit: (v) => this._tgSetSize(v) },
+            { name: "Align X", value: c.alignX, onedit: (v) => this._tgSetAlignment(v, c.alignY) },
+            { name: "Align Y", value: c.alignY, onedit: (v) => this._tgSetAlignment(c.alignX, v) },
+            { name: "Glyphs", value: c.insp ? c.insp.glyphCount : 0 },
+            { name: "Lines", value: c.insp ? c.insp.lineCount : 0 },
           ],
         },
       ];

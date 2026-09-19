@@ -23,6 +23,11 @@ export function graphemeEnds(text) {
   return ends;
 }
 
+// Self closing tags stand for an inline object and occupy one space in the
+// plain text.
+const INLINE_TAGS = new Set(["icon", "space"]);
+export const INLINE_CHAR = " ";
+
 export function stripTags(text) {
   let out = "";
   let last = 0;
@@ -31,6 +36,11 @@ export function stripTags(text) {
   while ((m = TAG_RE.exec(text)) !== null) {
     if (m.index > 0 && text.charAt(m.index - 1) === "\\") continue;
     out += text.substring(last, m.index);
+    if (m[1] !== "/") {
+      const body = m[2];
+      const eq = body.indexOf("=");
+      if (INLINE_TAGS.has((eq === -1 ? body : body.substring(0, eq)).toLowerCase())) out += INLINE_CHAR;
+    }
     last = m.index + m[0].length;
   }
   out += text.substring(last);
@@ -81,7 +91,33 @@ export function makeStyle() {
     scaleX: 1,
     scaleY: 1,
     tag: "",
+    overline: false,
+    decorationColor: null, // [r,g,b,a] or null for the text color
+    decorationThickness: 0, // 0 follows lineThickness
+    decorationOffset: ZERO_OFFSET,
+    decorationStyle: 0, // index into DECORATION_STYLES
+    shadow: null, // { color, dx, dy } or null
+    letterSpacing: 0,
+    wordSpacing: 0,
+    inline: null, // { kind: "icon", name, frame, scale } or { kind: "space", width }
   };
+}
+
+export const DECORATION_STYLES = ["solid", "double", "dotted", "dashed", "wavy"];
+
+// "[shadow=#000 2 2]" or "[shadow=#000,2,2]". Offsets accept px or %.
+function shadow(p) {
+  if (p === null) return null;
+  const parts = p.trim().split(/[\s,]+/);
+  const color = parseCssColor(parts[0]);
+  if (!color) return null;
+  return { color, dx: offset(parts[1] ?? "1"), dy: offset(parts[2] ?? parts[1] ?? "1") };
+}
+
+// "[icon=name]", "[icon=name,scale]", "[icon=name,scale,frame]".
+function icon(p) {
+  const parts = (p || "").split(",").map((x) => x.trim());
+  return { kind: "icon", name: parts[0] || "", scale: num(parts[1], 1) || 1, frame: Math.max(0, num(parts[2], 0) | 0) };
 }
 
 // Parameters are resolved when the tag is pushed, so a fragment under an open
@@ -111,6 +147,25 @@ function resolveParam(tag, param) {
     case "scalex":
     case "scaley":
       return num(param, 1);
+    case "decorationcolor":
+      return parseCssColor(param);
+    case "decorationthickness":
+      return Math.max(0, num(param, 0));
+    case "decorationoffset":
+      return offset(param);
+    case "decorationstyle": {
+      const i = DECORATION_STYLES.indexOf((param || "").trim().toLowerCase());
+      return i === -1 ? 0 : i;
+    }
+    case "shadow":
+      return shadow(param);
+    case "letterspacing":
+    case "wordspacing":
+      return num(param, 0);
+    case "icon":
+      return icon(param);
+    case "space":
+      return { kind: "space", width: offset(param) };
   }
   return param;
 }
@@ -181,6 +236,35 @@ function applyTag(st, tag, v) {
       break;
     case "tag":
       st.tag = v;
+      break;
+    case "o":
+    case "overline":
+      st.overline = true;
+      break;
+    case "decorationcolor":
+      if (v) st.decorationColor = v;
+      break;
+    case "decorationthickness":
+      st.decorationThickness = v;
+      break;
+    case "decorationoffset":
+      st.decorationOffset = v;
+      break;
+    case "decorationstyle":
+      st.decorationStyle = v;
+      break;
+    case "shadow":
+      if (v) st.shadow = v;
+      break;
+    case "letterspacing":
+      st.letterSpacing = v;
+      break;
+    case "wordspacing":
+      st.wordSpacing = v;
+      break;
+    case "icon":
+    case "space":
+      st.inline = v;
       break;
   }
 }
@@ -256,8 +340,16 @@ export function parseBBCode(src, enabled) {
       }
       const tag = src.substring(at + 1, eq === -1 ? close : eq).toLowerCase();
       const param = eq === -1 ? null : src.substring(eq + 1, close);
-      stackTags.push(tag);
-      stackVals.push(resolveParam(tag, param));
+      if (INLINE_TAGS.has(tag)) {
+        const st = makeStyle();
+        for (let k = 0; k < stackTags.length; k++) applyTag(st, stackTags[k], stackVals[k]);
+        applyTag(st, tag, resolveParam(tag, param));
+        frags.push({ start: plain.length, end: plain.length + 1, style: st, face: null });
+        plain += INLINE_CHAR;
+      } else {
+        stackTags.push(tag);
+        stackVals.push(resolveParam(tag, param));
+      }
     }
   }
   if (last < n) {

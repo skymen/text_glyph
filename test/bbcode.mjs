@@ -23,6 +23,20 @@ assert.equal(r.frags[0].style.tag, "link");
 r = parseBBCode("[scale=2]a[/scale][scalex=0.5][scaley=3]b[/scaley][/scalex]", true);
 assert.deepEqual([r.frags[0].style.scaleX, r.frags[0].style.scaleY, r.frags[1].style.scaleX, r.frags[1].style.scaleY], [2, 2, 0.5, 3]);
 
+r = parseBBCode("[o][decorationcolor=#00ff00][decorationthickness=2][decorationoffset=3][decorationstyle=wavy][shadow=#000000 2 3]x[/shadow][/decorationstyle][/decorationoffset][/decorationthickness][/decorationcolor][/o]", true);
+assert.equal(r.frags[0].style.overline, true);
+assert.deepEqual(r.frags[0].style.decorationColor, [0, 1, 0, 1]);
+assert.equal(r.frags[0].style.decorationThickness, 2);
+assert.deepEqual(r.frags[0].style.decorationOffset, { value: 3, percent: false });
+assert.equal(r.frags[0].style.decorationStyle, 4);
+assert.deepEqual(r.frags[0].style.shadow, { color: [0, 0, 0, 1], dx: { value: 2, percent: false }, dy: { value: 3, percent: false } });
+r = parseBBCode("a[icon=coin,1.5,2]b[space=50%]c", true);
+assert.equal(r.plain, "a b c");
+assert.equal(r.frags.length, 5);
+assert.deepEqual(r.frags[1].style.inline, { kind: "icon", name: "coin", scale: 1.5, frame: 2 });
+assert.deepEqual(r.frags[3].style.inline, { kind: "space", width: { value: 50, percent: true } });
+assert.equal(stripTags("a[icon=coin]b"), "a b");
+
 r = parseBBCode("[b]raw[/b]", false);
 assert.equal(r.plain, "[b]raw[/b]");
 assert.equal(r.frags.length, 1);

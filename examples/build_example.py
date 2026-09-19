@@ -98,7 +98,10 @@ def glyph_inst(type_, text, x, y, w, h, size, color=(1, 1, 1), animated=True, ha
         "properties": {
             "text": text, "bbcode": True, "font": "Rubik", "size": size, "lineHeight": 0,
             "bold": False, "italic": False, "color": [color[0], color[1], color[2], 1],
-            "hAlign": halign, "vAlign": "top", "wrap": "word", "direction": "ltr",
+            "alignX": {"left": 0, "center": 0.5, "right": 1}[halign], "alignY": 0, "justify": "none",
+            "wrap": "word", "overflow": True, "ellipsis": False, "maxLines": 0, "direction": "auto", "originX": 0, "originY": 0,
+            "iconSet": -1, "letterSpacing": 0, "wordSpacing": 0, "paragraphSpacing": 0, "columns": 1, "columnGap": 0,
+            "justifyMinWordSpace": 1, "justifyMaxWordSpace": 0, "justifyLetterSpace": 0,
         },
         "uid": uid(), "sid": sid(), "tags": "", "instanceVariables": {},
         "behaviors": anim_props() if animated else {},

@@ -6,5 +6,5 @@ export const config = {
 };
 export const expose = true;
 export default function (align) {
-  this._tgSetHAlign(align);
+  this._tgSetHAlign(align * 0.5);
 }

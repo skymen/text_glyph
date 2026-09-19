@@ -1,4 +1,5 @@
-// Bundles scripts/glyph-entry.js into src/vendor/glyph.js. Run through
+// Bundles scripts/glyph-entry.js into src/vendor/glyph.js and opentype.js
+// into src/vendor/opentype.js for the editor. Run through
 // `npm run bundleGlyph`; `npm run build` and `npm run dev` run it first.
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
@@ -26,3 +27,19 @@ await build({
 });
 
 console.log("bundled src/vendor/glyph.js");
+
+// The editor only needs opentype.js.
+await build({
+  entryPoints: [path.join(root, "scripts/opentype-entry.js")],
+  outfile: path.join(root, "src/vendor/opentype.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: "es2022",
+  minify: false,
+  legalComments: "none",
+  external: ["fs"],
+  logLevel: "warning",
+});
+
+console.log("bundled src/vendor/opentype.js");

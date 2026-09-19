@@ -47,7 +47,11 @@ export class GlyphAtlas {
     this.pendingReset = false;
     this.white = null;
     this._releaseWith = null;
-    this._init();
+  }
+
+  // Pages are canvases, created on first use so the atlas can exist without a DOM.
+  _ensure() {
+    if (!this.pages.length) this._init();
   }
 
   _init() {
@@ -70,6 +74,7 @@ export class GlyphAtlas {
   // Call once per frame before requesting entries. A reset only happens here so
   // entries handed out during a frame stay valid for that frame.
   beginFrame(renderer) {
+    this._ensure();
     if (!this.pendingReset) return;
     this.pendingReset = false;
     this.releaseTextures(renderer);
@@ -98,6 +103,7 @@ export class GlyphAtlas {
   // Keyed by face, then by a number packing glyph id, ppem, fake bold and
   // stroke width, so a lookup allocates nothing.
   get(face, glyphId, ppem, fakeBold, strokePx) {
+    this._ensure();
     let perFace = this.cache.get(face.key);
     if (!perFace) {
       perFace = new Map();

@@ -1,6 +1,7 @@
 # Text Glyph backlog
 
-- Icons: `[icon=...]` from a Sprite icon set. Plan: a span holding one space with `wordSpacing` set to the icon width reserves the slot, then draw the frame at that glyph's position. Needs the Sprite frame texture API (IAnimationFrame extends IImageInfo, so getTexture/getTexRect exist).
+- Icons: `[icon=name,scale,frame]` reserves a space with `wordSpacing` set to the icon width and draws the Sprite frame there. Frames are read through a Sprite instance (`getAnimation`), the only public route to a Sprite's animations, so the icon set needs an instance in the layout. Trailing icons at a line end count as trailing whitespace for alignment.
+- Flow exclusions use glyph's `flow.regions`. When exclusions or columns are active glyph places the lines itself, so alignment snaps to left/center/right instead of any percentage. The editor preview ignores exclusions.
 - Inline objects: glyph's Rust engine already lays out inline objects (`EngineInlineObjectRecord`), only the public `GlyphTextState` lacks the field. A small TS patch upstream (configured-handle.ts `#bindState`, `maxInlineObjects` in engine-encoding.ts) would replace the space/wordSpacing trick.
 - WOFF/WOFF2 fonts: glyph's baker rejects them (sfnt.rs). WOFF is per-table zlib, decodable in JS; WOFF2 needs a brotli decoder. Only .ttf/.otf work today.
 - Variable fonts: rejected by glyph's baker (`UnsupportedVariableFont`). Users must ship static instances.
@@ -8,8 +9,11 @@
 - Atlas eviction: after 8 pages the whole atlas resets. Fine for now, an LRU per page would avoid re-rasterizing everything on big CJK texts.
 - Height clipping: the built-in Text stops drawing lines below the box. We draw everything (overflow visible).
 - Outline is always drawn behind the fill. The built-in's `[outline]` draws on top and `[outlineback]` behind.
-- Editor preview uses Construct's text renderer, so it ignores BBCode styling and uses the base font only.
+- Editor font lookup: the editor SDK cannot list project files, so `src/editor/shared.js` probes `GetProjectFileByName` with a few casings of each stem. A font file with an unusual name works at runtime but falls back to Construct's renderer in the editor.
 - glyph 0.1.0 internals imported by path in `src/runtime/glyphEngine.js` (loader.js, font-baker/index.js, internal/font-bake-pipeline.js, internal/raster-bake-plan.js). Pin the version; re-check these paths on every glyph upgrade.
 - Check in Construct: `drawMesh` vertex color multiplication with layer/effects, `layerToDrawSurface` returning device pixels, project font file names in `projectFileList` (folder prefixes), `getCurrentZ` for Z elevation.
+- Editor layout is the JavaScript path (`src/runtime/simpleLayout.js`) because the editor page's content security policy blocks WebAssembly: no ligatures, no bidi mixing inside a line, no complex scripts. It matches glyph on advances, kerning, line metrics, wrapping, justify and per paragraph direction.
+- Check in the editor: the `fontInfo` info property is assumed to have no value, so runtime property indices in `src/runtime/instance.js` skip it. `LayoutToClientDevice` is assumed to return device pixels. Editor `DrawMesh` is assumed to honor per-vertex colors like the runtime.
+- Glyph layout features not exposed: first line indent (use `[space=...]`), drop caps (use a flow exclusion around a second text object), `spaceBefore`/`spaceAfter` (glyph applies them to the whole text, paragraph spacing is done here per line break).
 - Animate Text still round-trips through a BBCode string every tick: it serializes per-letter values, then `parseBBCode` re-parses them. A direct fragment API (Animate Text hands over `[text, tags]` groups, Text Glyph builds fragments without parseFloat or substring) would remove both the string build and the parse, the two biggest per-tick costs left.
 - `fragIndexFor` is a binary search per glyph on every reparse. A forward scan with a cached index would do for LTR text.

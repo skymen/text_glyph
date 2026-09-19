@@ -28,7 +28,7 @@
     "bundleGlyph": "node scripts/bundle-glyph.mjs",
     "prebuild": "npm run bundleGlyph",
     "predev": "npm run bundleGlyph",
-    "test": "node test/smoke.mjs"
+    "test": "node test/smoke.mjs && node test/bbcode.mjs && node test/core.mjs"
   },
   "dependencies": {
     "@pmndrs/glyph": "^0.1.0",
