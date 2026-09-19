@@ -536,11 +536,16 @@ export class TextCore {
       if (st.inline) {
         if (st.inline.kind === "space") inlineWidth = Math.max(0, offsetPx(st.inline.width, sizePx));
         else {
+          // Like the built-in Text: the icon is as tall as the font's line
+          // box (ascender to descender) and keeps its aspect ratio.
           const icon = this.iconResolver ? this.iconResolver(st.inline.name, st.inline.frame) : null;
           f.icon = icon;
-          const ih = sizePx * st.inline.scale;
+          const m = face.metrics;
+          const k = (sizePx * st.inline.scale) / m.unitsPerEm;
+          const ih = (m.ascender - m.descender) * k;
           inlineWidth = icon && icon.height > 0 ? (ih * icon.width) / icon.height : ih;
           f.iconH = ih;
+          f.iconTop = m.ascender * k;
         }
         f.inlineW = inlineWidth;
         ws = inlineWidth - spaceAdvance(face, sizePx);
@@ -807,8 +812,7 @@ export class TextCore {
               holder = { texture: tex };
               this._iconHolders.set(tex, holder);
             }
-            const ih = meta.iconH;
-            emitTextured(fc, PASS_FILL, holder, gx, gy - ih, adv, ih, icon.uv[0], icon.uv[1], icon.uv[2], icon.uv[3], ic[0], ic[1], ic[2], alpha);
+            emitTextured(fc, PASS_FILL, holder, gx, gy - meta.iconTop, adv, meta.iconH, icon.uv[0], icon.uv[1], icon.uv[2], icon.uv[3], ic[0], ic[1], ic[2], alpha);
           }
         }
         continue;

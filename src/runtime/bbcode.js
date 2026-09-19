@@ -114,10 +114,11 @@ function shadow(p) {
   return { color, dx: offset(parts[1] ?? "1"), dy: offset(parts[2] ?? parts[1] ?? "1") };
 }
 
-// "[icon=name]", "[icon=name,scale]", "[icon=name,scale,frame]".
+// "[icon=name]", "[icon=name,scale]", "[icon=name,scale,frame]" where frame
+// is an index or a frame tag.
 function icon(p) {
   const parts = (p || "").split(",").map((x) => x.trim());
-  return { kind: "icon", name: parts[0] || "", scale: num(parts[1], 1) || 1, frame: Math.max(0, num(parts[2], 0) | 0) };
+  return { kind: "icon", name: parts[0] || "", scale: num(parts[1], 1) || 1, frame: parts[2] || "" };
 }
 
 // Parameters are resolved when the tag is pushed, so a fragment under an open

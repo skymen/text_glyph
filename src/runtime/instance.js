@@ -250,6 +250,9 @@ export default function (parentClass) {
 
     // Frames come from a Sprite instance, the only public way to reach a
     // Sprite's animations, so the icon set needs an instance in the layout.
+    // The built-in Text finds icons by frame tag across every animation; the
+    // public SDK cannot list animations, so here the name is the animation
+    // and the frame is an index or a tag inside it.
     _tgResolveIcon(name, frame) {
       const key = name + "\u0001" + frame;
       const cached = this._iconCache.get(key);
@@ -262,7 +265,8 @@ export default function (parentClass) {
       const anim = inst.getAnimation(name);
       if (!anim) return null;
       const frames = anim.getFrames();
-      const f = frames[Math.min(frame, frames.length - 1)];
+      const index = frame === "" ? 0 : Number(frame);
+      const f = Number.isFinite(index) ? frames[Math.min(Math.max(0, index | 0), frames.length - 1)] : frames.find((fr) => fr.tag === frame) || frames[0];
       const r = f.getTexRect();
       const icon = {
         width: f.width,
@@ -306,22 +310,15 @@ export default function (parentClass) {
       while (this._exclusions.length) this._tgRemoveExclusionEntry(this._exclusions[0]);
     }
 
-    // World polygon of an instance: the collision polygon of a Sprite's
-    // current frame (points are image pixels relative to the origin), or the
-    // bounding quad of anything else.
+    // World polygon of an instance: a Sprite's collision polygon in layout
+    // coordinates (getPolyPoint, the same as the PolyX/PolyY expressions),
+    // or the bounding quad of anything else.
     _tgWorldPolygon(inst) {
-      if (inst.animation) {
-        const frame = inst.animation.getFrames()[inst.animationFrame];
-        const n = frame.getPolyPointCount();
+      if (inst.getPolyPointCount) {
+        const n = inst.getPolyPointCount();
         if (n >= 3) {
-          const sx = inst.width / frame.width, sy = inst.height / frame.height;
-          const cs = Math.cos(inst.angle), sn = Math.sin(inst.angle);
           const out = [];
-          for (let i = 0; i < n; i++) {
-            const [px, py] = frame.getPolyPoint(i);
-            const x = px * sx, y = py * sy;
-            out.push([inst.x + x * cs - y * sn, inst.y + x * sn + y * cs]);
-          }
+          for (let i = 0; i < n; i++) out.push(inst.getPolyPoint(i));
           return out;
         }
       }

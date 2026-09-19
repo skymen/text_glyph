@@ -109,8 +109,10 @@ export default function (instanceClass) {
       if (!type || typeof type.GetAnimations !== "function") return null;
       const anim = type.GetAnimations().find((a) => a.GetName() === name);
       if (!anim) return null;
+      // The editor SDK exposes no frame tags, so a tag falls back to frame 0.
       const frames = anim.GetFrames();
-      const f = frames[Math.min(frame, frames.length - 1)];
+      const index = frame === "" ? 0 : Number(frame);
+      const f = frames[Number.isFinite(index) ? Math.min(Math.max(0, index | 0), frames.length - 1) : 0];
       const r = f.GetTexRect();
       const icon = {
         width: f.GetWidth(),

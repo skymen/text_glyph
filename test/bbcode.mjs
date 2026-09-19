@@ -33,7 +33,7 @@ assert.deepEqual(r.frags[0].style.shadow, { color: [0, 0, 0, 1], dx: { value: 2,
 r = parseBBCode("a[icon=coin,1.5,2]b[space=50%]c", true);
 assert.equal(r.plain, "a b c");
 assert.equal(r.frags.length, 5);
-assert.deepEqual(r.frags[1].style.inline, { kind: "icon", name: "coin", scale: 1.5, frame: 2 });
+assert.deepEqual(r.frags[1].style.inline, { kind: "icon", name: "coin", scale: 1.5, frame: "2" });
 assert.deepEqual(r.frags[3].style.inline, { kind: "space", width: { value: 50, percent: true } });
 assert.equal(stripTags("a[icon=coin]b"), "a b");
 
