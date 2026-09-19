@@ -43,6 +43,8 @@ npm run dev
 ## Examples Files
 | Description | Download |
 | --- | --- |
+| text-glyph-feature-tour-modified | [<img src="https://placehold.co/120x30/4493f8/FFF?text=Download&font=montserrat" width="120"/>](https://github.com/skymen/text_glyph/raw/refs/heads/main/examples/text-glyph-feature-tour-modified.c3p) |
+| text-glyph-feature-tour | [<img src="https://placehold.co/120x30/4493f8/FFF?text=Download&font=montserrat" width="120"/>](https://github.com/skymen/text_glyph/raw/refs/heads/main/examples/text-glyph-feature-tour.c3p) |
 | text-glyph-vs-builtin | [<img src="https://placehold.co/120x30/4493f8/FFF?text=Download&font=montserrat" width="120"/>](https://github.com/skymen/text_glyph/raw/refs/heads/main/examples/text-glyph-vs-builtin.c3p) |
 
 ---

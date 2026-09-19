@@ -2,6 +2,7 @@
 // shows in the layout view. When the font has no .ttf/.otf project file the
 // preview falls back to Construct's own text renderer with the tags stripped.
 import { TextCore } from "../runtime/textCore.js";
+import { id as ADDON_ID } from "../../config.caw.js";
 import {
   getEditorShared,
   gfxFor,
@@ -85,7 +86,9 @@ export default function (instanceClass) {
       const inst = this._inst;
       SDK.UI.Util.ShowLongTextPropertyDialog(
         String(inst.GetPropertyValue("text")),
-        self.lang(".properties.text.name"),
+        // Relative keys only resolve while the plugin's language context is
+        // pushed, which is not the case inside an instance callback.
+        self.lang(`plugins.${ADDON_ID.toLowerCase()}.properties.text.name`),
       ).then((text) => {
         if (text === null) return;
         inst.GetProject().UndoPointChangeObjectInstancesProperty(inst, "text");
