@@ -158,6 +158,32 @@ npm run dev
 ---
 ## Changelog
 
+**1.1.0.0**
+- **Added:** Alignment as percentages. Horizontal alignment and Vertical alignment are now 0 to 1 floats, so any position works, not just left, center and right. The dropdown actions stay and map onto them, and Set horizontal alignment (by percentage) and Set vertical alignment (by percentage) take any value from 0 to 100. AlignX and AlignY expressions return the current percentages.
+- **Added:** Origin from properties. Origin X and Origin Y are 0 to 1 fractions of the size, with Set origin, Set origin X and Set origin Y actions and OriginX and OriginY expressions.
+- **Added:** Justify. Off, every line but the last, or every line. The last line of a paragraph follows the horizontal alignment. Justify tuning, in the new Spacing property group and the Set justify tuning action, sets how far spaces may shrink and grow before letters spread apart.
+- **Added:** Wrapping None: lines only break at line breaks in the text.
+- **Added:** Overflow and Ellipsis toggles with Set overflow and Set ellipsis. With Overflow off, lines below the box and glyphs past its right edge are not drawn. Ellipsis cuts the text that does not fit and ends it with an ellipsis. TextWidth and TextHeight still measure the whole text.
+- **Added:** Max lines. Layout stops after that many lines, with the ellipsis on the last one when Ellipsis is on.
+- **Added:** Letter spacing, word spacing and paragraph spacing, as properties, actions and the [letterspacing=px] and [wordspacing=px] tags. Paragraph spacing adds room after every line break.
+- **Added:** Columns. Set the count and gap in properties or with Set columns; the text fills each column to the box height before moving to the next.
+- **Added:** Flow exclusions. Add flow exclusion makes the text wrap around the picked instances, on both sides, the start side, the end side or the largest side, with a margin. Sprites use their collision polygon, everything else its bounding box, and the layout follows the instances as they move. Remove flow exclusion and Clear flow exclusions undo it. A drop cap is a second Text Glyph object added as an exclusion.
+- **Added:** Inline icons. [icon=animation], [icon=animation,scale] and [icon=animation,scale,frame] draw a frame of the Sprite chosen in the Icon set property or with Set icon set. The frame is an index or a frame tag. Icons are as tall as the font's line box, like the built-in Text.
+- **Added:** [space=width] reserves an empty run, in pixels or as a percentage of the font size, for indents and gaps.
+- **Added:** Overline with [o] or [overline]. Decorations take [decorationcolor=color], [decorationthickness=px], [decorationoffset=px or %] and [decorationstyle=solid|double|dotted|dashed|wavy], shared by underline, strike and overline. Thickness follows [linethickness] unless set.
+- **Added:** [shadow=color dx dy] draws a hard shadow behind the text, with offsets in pixels or as a percentage of the font size.
+- **Added:** The editor renders the text with its BBCode, fonts and layout, the same way the runtime does. It only falls back to Construct's own text rendering when the font file is not found.
+- **Added:** Double-clicking an instance in the editor opens the text dialog, like the built-in Text.
+- **Added:** A Font files info property above Font says which files work: .ttf and .otf.
+- **Added:** New example, Text Glyph Feature Tour: ten tabs covering tags, decorations, transforms, alignment, wrapping, spacing, flow, icons, scripts and Animate Text.
+- **Changed:** The alignment properties are new floats (alignX, alignY) in place of the old dropdowns. Instances placed with 1.0.0.0 go back to the default, left and top, and need their alignment set again.
+- **Changed:** Text direction defaults to Auto, which picks the direction of each paragraph from its first strong character.
+- **Changed:** Overflow is off by default.
+- **Changed:** A new instance dropped in the layout is 200 by 30, the same as the built-in Text.
+- **Changed:** Spacing settings live in their own property group. Actions are split into Text, Spacing, Icons and flow, Typewriter, Tags and Fonts categories.
+- **Fixed:** Wrapping was wrong with fonts that kern letters against the space, such as Fredoka: lines broke early, justified lines came out with huge gaps, and a word could split in the middle. The glyph library only breaks a line where the shaper marks the next glyph safe to break, and kerning across a space marks it unsafe. Kerning is now turned off on the space characters alone, which keeps kerning inside words. A browser repro for the upstream report is in reports/glyph-wrap-repro.html.
+- **Fixed:** Double-clicking an instance in the editor crashed with 'relative language string used with no context set'.
+
 **1.0.0.0**
 - **Added:** Initial release
 

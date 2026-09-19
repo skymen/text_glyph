@@ -228,7 +228,7 @@ export const properties = [
     name: "Text direction",
     desc: "Base paragraph direction. Auto picks it from the first strong character.",
     options: {
-      initialValue: "ltr",
+      initialValue: "auto",
       items: [
         { ltr: "Left to right" },
         { rtl: "Right to left" },
