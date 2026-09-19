@@ -1,6 +1,6 @@
 <img src="./examples/cover.png" width="150" /><br>
 # Text Glyph
-<i>Text object drawn from a shared glyph atlas. Real shaping and bidi, BBCode, per-letter effects, typewriter without reflow.</i> <br>
+<i>Text object drawn using pmdrs's glyph engine. Supports more BBCode tags than the default text object and handles kerning better.</i> <br>
 ### Version 1.0.0.0
 
 [<img src="https://placehold.co/200x50/4493f8/FFF?text=Download&font=montserrat" width="200"/>](https://github.com/skymen/text_glyph/releases/download/skymen_text_glyph-1.0.0.0.c3addon/skymen_text_glyph-1.0.0.0.c3addon)
@@ -14,6 +14,7 @@
 
 ---
 <b><u>Author:</u></b> skymen <br>
+<b>[Construct Addon Page](https://www.construct.net/en/make-games/addons/1708/text-glyph)</b>  <br>
 <sub>Made using [CAW](https://marketplace.visualstudio.com/items?itemName=skymen.caw) </sub><br>
 
 ## Table of Contents

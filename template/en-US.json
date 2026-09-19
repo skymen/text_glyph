@@ -5,7 +5,7 @@
     "plugins": {
       "skymen_text_glyph": {
         "name": "Text Glyph",
-        "description": "Text object drawn from a shared glyph atlas. Real shaping and bidi, BBCode, per-letter effects, typewriter without reflow.",
+        "description": "Text object drawn using pmdrs's glyph engine. Supports more BBCode tags than the default text object and handles kerning better.",
         "help-url": "https://www.construct.net",
         "aceCategories": {
           "fonts": "Fonts",
