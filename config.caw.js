@@ -158,14 +158,24 @@ export const properties = [
     id: "alignX",
     name: "Horizontal alignment",
     desc: "Where each line sits in the box: 0 is the left edge, 0.5 the center, 1 the right edge.",
-    options: { initialValue: 0, minValue: 0, maxValue: 1, dragSpeedMultiplier: 0.01 },
+    options: {
+      initialValue: 0,
+      minValue: 0,
+      maxValue: 1,
+      dragSpeedMultiplier: 0.01,
+    },
   },
   {
     type: PROPERTY_TYPE.FLOAT,
     id: "alignY",
     name: "Vertical alignment",
     desc: "Where the text block sits in the box: 0 is the top, 0.5 the middle, 1 the bottom.",
-    options: { initialValue: 0, minValue: 0, maxValue: 1, dragSpeedMultiplier: 0.01 },
+    options: {
+      initialValue: 0,
+      minValue: 0,
+      maxValue: 1,
+      dragSpeedMultiplier: 0.01,
+    },
   },
   {
     type: PROPERTY_TYPE.COMBO,
@@ -174,7 +184,11 @@ export const properties = [
     desc: "Stretch word spacing so lines fill the box width. The last line of a paragraph follows the horizontal alignment unless every line is justified.",
     options: {
       initialValue: "none",
-      items: [{ none: "Off" }, { lines: "All but last line" }, { all: "Every line" }],
+      items: [
+        { none: "Off" },
+        { lines: "All but last line" },
+        { all: "Every line" },
+      ],
     },
   },
   {
@@ -192,7 +206,7 @@ export const properties = [
     id: "overflow",
     name: "Overflow",
     desc: "Let text extend past the bottom of the box. When off, lines that do not fit inside the box are not drawn.",
-    options: { initialValue: true },
+    options: { initialValue: false },
   },
   {
     type: PROPERTY_TYPE.CHECK,
@@ -290,7 +304,12 @@ export const properties = [
     id: "justifyMinWordSpace",
     name: "Justify: min word space",
     desc: "When justifying, a space may shrink to this multiple of its natural width. 1 never shrinks.",
-    options: { initialValue: 1, minValue: 0.01, maxValue: 1, dragSpeedMultiplier: 0.01 },
+    options: {
+      initialValue: 1,
+      minValue: 0.01,
+      maxValue: 1,
+      dragSpeedMultiplier: 0.01,
+    },
   },
   {
     type: PROPERTY_TYPE.FLOAT,
