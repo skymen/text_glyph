@@ -15,7 +15,7 @@ export const author = "skymen";
 export const website = "https://www.construct.net";
 export const documentation = "https://www.construct.net";
 export const description =
-  "Text object drawn using pmdrs's glyph engine. Supports more BBCode tags than the default text object and handles kerning better.";
+  "Text object drawn using pmndrs's glyph engine. Supports more BBCode tags than the default text object and handles kerning better.";
 export const category = ADDON_CATEGORY.GENERAL;
 
 export const hasDomside = false;

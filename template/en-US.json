@@ -5,7 +5,7 @@
     "plugins": {
       "skymen_text_glyph": {
         "name": "Text Glyph",
-        "description": "Text object drawn using pmdrs's glyph engine. Supports more BBCode tags than the default text object and handles kerning better.",
+        "description": "Text object drawn using pmndrs's glyph engine. Supports more BBCode tags than the default text object and handles kerning better.",
         "help-url": "https://www.construct.net",
         "aceCategories": {
           "flow": "Icons and flow",

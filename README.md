@@ -1,30 +1,14 @@
 <img src="./examples/cover.png" width="150" /><br>
 # Text Glyph
-<i>Text object drawn using pmdrs's glyph engine. Supports more BBCode tags than the default text object and handles kerning better.</i> <br>
-### Version 1.1.0.0
+<i>Text object drawn using pmndrs's glyph engine. Supports more BBCode tags than the default text object and handles kerning better.</i> <br>
+### Version 1.1.0.1
 
-[<img src="https://placehold.co/200x50/4493f8/FFF?text=Download&font=montserrat" width="200"/>](https://github.com/skymen/text_glyph/releases/download/skymen_text_glyph-1.1.0.0.c3addon/skymen_text_glyph-1.1.0.0.c3addon)
+[<img src="https://placehold.co/200x50/4493f8/FFF?text=Download&font=montserrat" width="200"/>](https://github.com/skymen/text_glyph/releases/download/skymen_text_glyph-1.1.0.1.c3addon/skymen_text_glyph-1.1.0.1.c3addon)
 <br>
 <sub> [See all releases](https://github.com/skymen/text_glyph/releases) </sub> <br>
 
-#### What's New in 1.1.0.0
-- **Added:** Origin X and Y properties, actions and expressions.
-- **Added:** Justify, with justify tuning.
-- **Added:** Wrapping mode None.
-- **Added:** Overflow and Ellipsis toggles.
-- **Added:** Max lines.
-- **Added:** Letter, word and paragraph spacing, with [letterspacing] and [wordspacing] tags.
-- **Added:** Rendering as columns.
-- **Added:** Flow exclusions: text wraps around picked instances.
-- **Added:** Inline icons with [icon] and an Icon set property.
-- **Added:** [space] tag.
-- **Added:** Overline, and [decorationcolor], [decorationthickness], [decorationoffset] and [decorationstyle] tags.
-- **Added:** [shadow] tag.
-- **Changed:** Alignment properties are new floats. Instances from 1.0.0.0 go back to left and top.
-- **Changed:** Text direction defaults to Auto.
-- **Changed:** New instances are 200 by 30.
-- **Changed:** New Spacing property group and action categories.
-- **Fixed:** Wrong wrapping with fonts that kern against the space.
+#### What's New in 1.1.0.1
+- **Fixed:** typo in description
 
 <sub>[View full changelog](#changelog)</sub>
 
@@ -173,6 +157,9 @@ npm run dev
 
 ---
 ## Changelog
+
+**1.1.0.1**
+- **Fixed:** typo in description
 
 **1.1.0.0**
 - **Added:** Origin X and Y properties, actions and expressions.

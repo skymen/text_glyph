@@ -13,5 +13,10 @@
     "added": "Origin X and Y properties, actions and expressions.\nJustify, with justify tuning.\nWrapping mode None.\nOverflow and Ellipsis toggles.\nMax lines.\nLetter, word and paragraph spacing, with [letterspacing] and [wordspacing] tags.\nRendering as columns.\nFlow exclusions: text wraps around picked instances.\nInline icons with [icon] and an Icon set property.\n[space] tag.\nOverline, and [decorationcolor], [decorationthickness], [decorationoffset] and [decorationstyle] tags.\n[shadow] tag.",
     "changed": "Alignment properties are new floats. Instances from 1.0.0.0 go back to left and top.\nText direction defaults to Auto.\nNew instances are 200 by 30.\nNew Spacing property group and action categories.",
     "fixed": "Wrong wrapping with fonts that kern against the space."
+  },
+  "1.1.0.1": {
+    "added": "",
+    "changed": "",
+    "fixed": "typo in description"
   }
 }
