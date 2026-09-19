@@ -16,3 +16,5 @@
 - Glyph layout features not exposed: first line indent (use `[space=...]`), drop caps (use a flow exclusion around a second text object), `spaceBefore`/`spaceAfter` (glyph applies them to the whole text, paragraph spacing is done here per line break).
 - Animate Text still round-trips through a BBCode string every tick: it serializes per-letter values, then `parseBBCode` re-parses them. A direct fragment API (Animate Text hands over `[text, tags]` groups, Text Glyph builds fragments without parseFloat or substring) would remove both the string build and the parse, the two biggest per-tick costs left.
 - `fragIndexFor` is a binary search per glyph on every reparse. A forward scan with a cached index would do for LTR text.
+- Figure out how to add 3d rotations support
+- Figure out how to add mesh support
