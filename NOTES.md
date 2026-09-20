@@ -18,3 +18,4 @@
 - `fragIndexFor` is a binary search per glyph on every reparse. A forward scan with a cached index would do for LTR text.
 - Figure out how to add 3d rotations support
 - Figure out how to add mesh support
+- make icons match built in
